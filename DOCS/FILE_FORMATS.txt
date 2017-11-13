@@ -1,0 +1,33 @@
+;DECODER FILE FORMAT
+;Note: Execution always passes to the start of wherever field 1 is relocated to.
+	;HEADER
+	db "8CECPck"   ;exactly 7 chars
+	db "CODECNA "  ;zero-padded to 9 chars. String allowed to be only 8 wide
+	db NUM_FIELDS
+	;FIELD
+	dw  SIZE_OF_CODE_SEGMENT
+	d24 ADDRESS_TO_RELOCATE_CODE_TO
+	ds  DECODER_CODE_SEGMENT
+
+;VIDEO METADATA FORMAT
+	db "8CEVDaH"   ;exactly 7 chars
+	db "CODECNA "  ;zero-padded to 9 chars, decoder used to decode this video file
+	ds NULL_TERMINATED_TITLE_STRING_DATA
+	ds NULL_TERMINATED_AUTHOR_STRING_DATA
+	dw NUMBER_OF_DATA_SECTIONS_IN_VIDEO
+	dw VIDEO_WIDTH
+	dw VIDEO_HEIGHT
+	db NUMBER_OF_FRAMES_PER_FIELD
+	
+;VIDEO DATA FORMAT
+	;HEADER
+	db "8CEVDat"   ;exactly 7 chars
+	db "METDATF  "  ;Name of accompanying metadata file , zero-padded to 9 chars
+	db NUMBER_OF_FIELDS
+	;FIELD
+	dw FIELD_SERIAL
+	dw SIZE_OF_FIELD_DATA_SECTION
+	ds FIELD_DATA_SECTION
+
+
+
