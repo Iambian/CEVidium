@@ -27,8 +27,8 @@ ENCODER_NAMES = {   1: "1B3X-ZX7",
                     2: "2B3X-ZX7",
                     3: "2B1X-ZX7",
                     4: "1B1X-ZX7",
-                    5: "1C3X-ZX7",
-                    6: "AD3X-ZX7",
+                    5: "4C3X-ZX7",
+                    6: "4A3X-ZX7",
 }
 FPSEG_BY_ENCODER = {    1:30,
                         2:15,
@@ -240,8 +240,12 @@ def usage():
     print "Usage: python toolkit.py -i <in_video.name>"
     print "Additional options:"
     print "-e ENCODER  = Uses a particular encoder. ENCODER are as follows:"
-    print "              1 = 1bpp b/w, 3x scaling"
-    print "              2 = 2bpp b/dg/lg/w, 3x scaling"
+    print "              1 = 1bpp b/w, 3x scaling from 96 by X"
+    print "              2 = 2bpp b/dg/lg/w, 3x scaling from 96 by X"
+    print "              3 = (decoder not supported)"
+    print "              4 = 1bpp b/w, no scaling from 176 by X"
+    print "              5 = 4bpp 16 color, 3x scaling from 96 by X"
+    print "              6 = 4bpp adaptive palette, 3x scaling from 96 by X"
     print "        -d  = Uses dithering. May increase filesize."
     print "        -f  = Force reconversion of video data"
     print ' -t "title" = Adds title information to the project'
