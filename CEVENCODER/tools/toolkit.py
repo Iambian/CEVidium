@@ -1,8 +1,9 @@
 print "Loading libraries"
 from PIL import Image,ImageTk,ImagePalette
 from ffmpy import FFmpeg
+from itertools import chain
 import Tkinter as tk
-import sys,os,ctypes,subprocess,getopt,shutil,struct,time
+import sys,os,ctypes,subprocess,getopt,shutil,struct,time,colorsys
 
 np  = os.path.normpath
 cwd = os.getcwd()
@@ -213,7 +214,29 @@ class Framebuf():
         mfiledata += struct.pack("B",self.frames_per_segment)
         export8xv(OUTPUT_DIR,outfilename,mfiledata)
 
-        
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+# Image filtering
+
+def gethsv(t):
+    r,g,b = (i/255.0 for i in t)
+    return colorsys.rgb_to_hsv(r,g,b)
+
+def rgbpaltolist(s):
+    o = []
+    for i in range(0,768,3):
+        r = ord(s[i+0])&0xF8
+        g = ord(s[i+1])&0xF8
+        b = ord(s[i+2])&0xF8
+        o.append((r,g,b))
+    o = list(set(o))      #remove duplicates
+    #o.sort(key=gethsv)    #sort by hsv for continuity
+    if (0,0,0) not in o: o.insert(0,(0,0,0))  #black must always be in the palette
+    o.insert(0,o.pop(o.index((0,0,0))))       #black is always at the front
+    o += [(0,0,0)]*(256-len(o))
+    return o
+
+
+
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 # Conversion to palettized image without dithering, sourced from:
 # https://stackoverflow.com/questions/29433243/convert-image-to-specific-palette-using-pil-without-dithering
@@ -329,7 +352,8 @@ else:
     sf_fileget = invidname
 flist = GETIMGNAMES()
 if not flist: doffmpeg = True
-#--------------------------------------------------------------
+#-----------------------------------------------------------------------------------
+#VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
 if doffmpeg:
     if vid_encoder == '1':
         hres = 96
@@ -371,8 +395,8 @@ if doffmpeg:
         print e
         print "Terminating script."
         sys.exit(2)
-        
-#--------------------------------------------------------------
+#^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#-----------------------------------------------------------------------------------
 print "Saving config data"
 status_file_array[0] = sf_fileget
 status_file_array[1] = sf_encoder
@@ -384,6 +408,8 @@ with open(STATUS_FILE,"w") as f:
 print "Collecting image data..."
 
 img_width,img_height = (0,0)
+fl = [f for f in os.listdir(OUTPUT_DIR) if os.path.isfile(np(OUTPUT_DIR+'/'+f)) and f[:5]==invidname[:5]]
+for i in fl: os.remove(np(OUTPUT_DIR+'/'+i))
 
 flist = sorted([f for f in os.listdir(TEMP_PNG_DIR) if os.path.isfile(os.path.join(TEMP_PNG_DIR,f))])
 for f in flist:
@@ -449,35 +475,22 @@ for f in flist:
             imgdata.append(t)
     elif vid_encoder == '6':
         timg = img.convert("P",palette=Image.ADAPTIVE,colors=15)
-        palette = timg.palette.getdata()[1]
+        p = rgbpaltolist(timg.palette.getdata()[1])
+        palimg.putpalette(list(chain.from_iterable(p)))
+        timg = quantizetopalette(img,palimg,dithering)
         palettebin = ''
-        sanitycheck = []
-        for i in range(15):
-            r = ((ord(palette[3*i+0])>>3)&0x1F)
-            g = ((ord(palette[3*i+1])>>3)&0x1F)
-            b = ((ord(palette[3*i+2])>>3)&0x1F)
+        for i in range(1,16):
+            r,g,b = ((p[i][0]>>3)&0x1F,(p[i][1]>>3)&0x1F,(p[i][2]>>3)&0x1F)
             t = (r<<10)+(g<<5)+b
-            sanitycheck.extend((r<<3,g<<3,b<<3))
             palettebin += struct.pack("<H",t)
         timgdat = str(bytearray(timg.tobytes()))
-        
-        sanitycheck += (0,0,0)*241
-        #SANITY CHECKIG -- RECONSTRUCTING IMAGE FROM DATA
-        sanimg = Image.new("P",(img_width,img_height))
-        sanimg.putdata(timgdat)
-        sanimg.putpalette(sanitycheck[:3*16])
-
-        app.updateframe(sanimg)
+        app.updateframe(timg)
         for i in range(len(timgdat)/2):
             t = 0
             for j in range(2):
                 t += (ord(timgdat[(i*2)+j])&15)<<(4*j)
             imgdata.append(t)
         imgdata = bytearray(palettebin) + bytearray(imgdata)
-        
-        
-        
-        
     else:
         print "Illegal encoder value passed ("+vid_encoder+"). Cannot convert video."
         sys.exit(2)
