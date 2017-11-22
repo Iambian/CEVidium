@@ -23,6 +23,8 @@ def ensure_dir(d):
 ensure_dir(TEMP_DIR)
 ensure_dir(TEMP_PNG_DIR)
 ensure_dir(OUTPUT_DIR)
+ensure_dir(TEMP_DIR+'/tin')
+ensure_dir(TEMP_DIR+'/tout')
 
 ENCODER_NAMES = {   1: "1B3X-ZX7",
                     2: "2B3X-ZX7",
@@ -141,20 +143,23 @@ class Framebuf():
     def addframe(self,framedata):
         global TEMP_DIR
         if framedata:
-            framedata = str(bytearray(framedata))
+            framedata = str(bytearray(framedata)) #Disabled because it's already a string (for compatibility with my version of PIL)
             self.frame_buffer.extend(framedata)
             self.cur_frame += 1
             if self.cur_frame >= self.frames_per_segment:
                 framedata = None
         if not framedata and self.frame_buffer:
-            tfo = np(TEMP_DIR+"/tin")
-            tfc = np(TEMP_DIR+"/tout")
+            tfo = np(TEMP_DIR+"/tin/"+str(self.cur_segment))
+            tfc = np(TEMP_DIR+"/tout/"+str(self.cur_segment))
             if os.path.exists(tfo): os.remove(tfo)
             if os.path.exists(tfc): os.remove(tfc)
             writeFile(tfo,self.frame_buffer)
             FNULL = open("NUL","w")
             subprocess.call([np(cwd+"/tools/zx7.exe"),tfo,tfc],stdout=FNULL)
+            while not os.path.exists(tfc): time.sleep(1)
             self.cmpr_arr.append(CmprSeg(self.cur_segment,readFile(tfc)))
+            if os.path.exists(tfo): os.remove(tfo)
+            if os.path.exists(tfc): os.remove(tfc)
             self.raw_len += len(self.frame_buffer)
             self.cmpr_len += self.cmpr_arr[-1].size
             sys.stdout.write("Output seg "+str(self.cur_segment)+" size "+str(self.cmpr_arr[-1].size)+"      \r")
@@ -433,14 +438,15 @@ app.update()
 
 
 for f in flist:
+    print f
     img = Image.open(GETIMGPATH(f))
     imgdata = []
     if vid_encoder == '1':
-        imgdata = img.convert('1',None,dithering).tobytes()
+        imgdata = img.convert('1',None,dithering).tostring() # Changed from .tobytes() to be compatible with the latest PIL version
     elif vid_encoder == '2':
         palimg.putpalette([0,0,0,102,102,102,176,176,176,255,255,255]*64)
         timg = quantizetopalette(img,palimg,dithering)
-        timgdat = timg.tobytes()
+        timgdat = timg.tostring()
         app.updateframe(timg)
         for i in range(len(timgdat)/4):
             t = 0
@@ -450,7 +456,7 @@ for f in flist:
     elif vid_encoder == '3':
         palimg.putpalette([0,0,0,102,102,102,176,176,176,255,255,255]*64)
         timg = quantizetopalette(img,palimg,dithering)
-        timgdat = timg.tobytes()
+        timgdat = timg.tostring()
         app.updateframe(timg)
         for i in range(len(timgdat)/4):
             t = 0
@@ -458,7 +464,7 @@ for f in flist:
                 t += (ord(timgdat[(i*4)+j])&3)<<(2*j)
             imgdata.append(t)
     elif vid_encoder == '4':
-        imgdata = img.convert('1',None,dithering).tobytes()
+        imgdata = img.convert('1',None,dithering).tostring() # Changed from .tobytes() to be compatible with the latest PIL version
     elif vid_encoder == '5':
         palette = [0,0,0, 128,0,0, 0,128,0, 0,0,128,
                    128,128,0, 0,128,128, 128,0,128, 128,128,128,
@@ -466,7 +472,7 @@ for f in flist:
                    255,255,0, 0,255,255, 255,0,255, 255,255,255]
         palimg.putpalette(palette*16)
         timg = quantizetopalette(img,palimg,dithering)
-        timgdat = timg.tobytes()
+        timgdat = timg.tostring()
         app.updateframe(timg)
         for i in range(len(timgdat)/2):
             t = 0
@@ -483,7 +489,7 @@ for f in flist:
             r,g,b = ((p[i][0]>>3)&0x1F,(p[i][1]>>3)&0x1F,(p[i][2]>>3)&0x1F)
             t = (r<<10)+(g<<5)+b
             palettebin += struct.pack("<H",t)
-        timgdat = str(bytearray(timg.tobytes()))
+        timgdat = str(bytearray(timg.tostring()))
         app.updateframe(timg)
         for i in range(len(timgdat)/2):
             t = 0

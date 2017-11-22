@@ -23,7 +23,7 @@
 
 /* External library headers */
 #include <debug.h>
-#include <intce.h>
+/*#include <intce.h>*/
 #include <keypadc.h>
 #include <graphx.h>
 #include <decompress.h>
