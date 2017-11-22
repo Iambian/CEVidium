@@ -143,7 +143,7 @@ class Framebuf():
     def addframe(self,framedata):
         global TEMP_DIR
         if framedata:
-            framedata = str(bytearray(framedata)) #Disabled because it's already a string (for compatibility with my version of PIL)
+            framedata = str(bytearray(framedata))
             self.frame_buffer.extend(framedata)
             self.cur_frame += 1
             if self.cur_frame >= self.frames_per_segment:
