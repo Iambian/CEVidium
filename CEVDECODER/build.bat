@@ -1,6 +1,7 @@
 @echo off
 :START
 echo ###############################################################################
+if not exist bin\ mkdir bin
 tools\spasm64 -E src\1B3X-ZX7.asm bin\DECODR01.8xv
 tools\spasm64 -E src\2B3X-ZX7.asm bin\DECODR02.8xv
 tools\spasm64 -E src\1B1X-ZX7.asm bin\DECODR03.8xv

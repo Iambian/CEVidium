@@ -19,6 +19,14 @@ def GETIMGNAMES():
     return sorted([f for f in os.listdir(TEMP_PNG_DIR) if os.path.isfile(os.path.join(TEMP_PNG_DIR,f))])
 def ensure_dir(d):
     if not os.path.isdir(d): os.makedirs(d)
+def checkdel(fnp,isdel):  #True to check if deleted, False to check if exist (yet)
+    retries = 60
+    while os.path.isfile(fnp) == isdel:
+        time.sleep(0.015)
+        retries -= 1
+        if retries < 1:
+            return False
+    return True
     
 ensure_dir(TEMP_DIR)
 ensure_dir(TEMP_PNG_DIR)
@@ -151,9 +159,17 @@ class Framebuf():
             tfc = np(TEMP_DIR+"/tout")
             if os.path.exists(tfo): os.remove(tfo)
             if os.path.exists(tfc): os.remove(tfc)
+            if not checkdel(tfo,True):
+                raise IOError("Input file "+tfo+" could not be deleted.")
+            if not checkdel(tfc,True):
+                raise IOError("Output file "+tfo+" could not be deleted.")
             writeFile(tfo,self.frame_buffer)
+            if not checkdel(tfo,False):
+                raise IOError("Input file "+tfo+" could not be created.")
             FNULL = open("NUL","w")
             subprocess.call([np(cwd+"/tools/zx7.exe"),tfo,tfc],stdout=FNULL)
+            if not checkdel(tfc,False):
+                raise IOError("Output file "+tfo+" could not be created.")
             self.cmpr_arr.append(CmprSeg(self.cur_segment,readFile(tfc)))
             self.raw_len += len(self.frame_buffer)
             self.cmpr_len += self.cmpr_arr[-1].size
@@ -223,16 +239,19 @@ def gethsv(t):
 
 def rgbpaltolist(s):
     o = []
-    for i in range(0,768,3):
-        r = ord(s[i+0])&0xF8
-        g = ord(s[i+1])&0xF8
-        b = ord(s[i+2])&0xF8
+    for i in range(0,15*3,3):
+        r = ord(s[i+0])&~0x7
+        g = ord(s[i+1])&~0x7
+        b = ord(s[i+2])&~0x7
         o.append((r,g,b))
     o = list(set(o))      #remove duplicates
-    #o.sort(key=gethsv)    #sort by hsv for continuity
-    if (0,0,0) not in o: o.insert(0,(0,0,0))  #black must always be in the palette
-    o.insert(0,o.pop(o.index((0,0,0))))       #black is always at the front
-    o += [(0,0,0)]*(256-len(o))
+    o.sort()
+#    if (0,0,0) not in o: o.insert(0,(0,0,0))  #black must always be in the palette
+#    o.insert(0,o.pop(o.index((0,0,0))))       #black is always at the front
+    if len(o)<256:
+        o += [(0,0,0)]*(256-len(o))
+#    if o[0] != (0,0,0):
+#        raise ValueError("First val of out array is not (0,0,0) despite best efforts")
     return o
 
 
@@ -426,10 +445,10 @@ fb = Framebuf(img_width,img_height,vid_title,vid_author)
 fb.frames_per_segment = FPSEG_BY_ENCODER[int(vid_encoder)]
 palimg = Image.new("P",(16,16))
 newimgobj = Image.new("P",(img_width,img_height))
-root = tk.Tk()
-app = Application(root)
-app.update_idletasks()
-app.update()
+#root = tk.Tk()
+#app = Application(root)
+#app.update_idletasks()
+#app.update()
 
 
 for f in flist:
@@ -441,7 +460,7 @@ for f in flist:
         palimg.putpalette([0,0,0,102,102,102,176,176,176,255,255,255]*64)
         timg = quantizetopalette(img,palimg,dithering)
         timgdat = timg.tobytes()
-        app.updateframe(timg)
+        #app.updateframe(timg)
         for i in range(len(timgdat)/4):
             t = 0
             for j in range(4):
@@ -451,7 +470,7 @@ for f in flist:
         palimg.putpalette([0,0,0,102,102,102,176,176,176,255,255,255]*64)
         timg = quantizetopalette(img,palimg,dithering)
         timgdat = timg.tobytes()
-        app.updateframe(timg)
+        #app.updateframe(timg)
         for i in range(len(timgdat)/4):
             t = 0
             for j in range(4):
@@ -467,7 +486,7 @@ for f in flist:
         palimg.putpalette(palette*16)
         timg = quantizetopalette(img,palimg,dithering)
         timgdat = timg.tobytes()
-        app.updateframe(timg)
+        #app.updateframe(timg)
         for i in range(len(timgdat)/2):
             t = 0
             for j in range(2):
@@ -479,12 +498,12 @@ for f in flist:
         palimg.putpalette(list(chain.from_iterable(p)))
         timg = quantizetopalette(img,palimg,dithering)
         palettebin = ''
-        for i in range(1,16):
+        for i in range(0,15):
             r,g,b = ((p[i][0]>>3)&0x1F,(p[i][1]>>3)&0x1F,(p[i][2]>>3)&0x1F)
             t = (r<<10)+(g<<5)+b
             palettebin += struct.pack("<H",t)
         timgdat = str(bytearray(timg.tobytes()))
-        app.updateframe(timg)
+        #app.updateframe(timg)
         for i in range(len(timgdat)/2):
             t = 0
             for j in range(2):
