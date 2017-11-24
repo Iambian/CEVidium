@@ -8,7 +8,7 @@
 # ----------------------------
 
 NAME        ?= CEVIDIUM
-DEBUGMODE   ?= NDEBUG
+DEBUGMODE   ?= DEBUG
 COMPRESSED  ?= NO
 ICON        ?= iconc.png
 DESCRIPTION ?= "CEVidium - Video Player"

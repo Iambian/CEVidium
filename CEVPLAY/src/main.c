@@ -23,7 +23,6 @@
 
 /* External library headers */
 #include <debug.h>
-/*#include <intce.h>*/
 #include <keypadc.h>
 #include <graphx.h>
 #include <decompress.h>
@@ -76,7 +75,7 @@ void main(void) {
 			if (k&kb_Mode) break;
 			if (k&kb_2nd) { playvideo(varname); getnextvideo(); gfx_SetDefaultPalette(gfx_8bpp);}
 			k = kb_Data[7];
-			if (k) getnextvideo();
+			if (k) { if (!getnextvideo()) break;}
 			keywait();
 			gfx_FillScreen(0xBF);
 			gfx_SetTextScale(2,2);
@@ -120,6 +119,8 @@ void playvideo(char *vn) {
 	void (*runDecoder)(uint8_t**,uint8_t*) = (void*) &decoder_start_address;
 	int i3,j3,k3;
 	uint8_t i1,j1,k1,l1,*decomp_buffer,*decomp_cptr,*draw_ptr,cur_decomp_byte;
+
+	dbg_sprintf(dbgout,"VIDEO ADR 1: %x, AT DATA: %x\n",&video,video.segments);
 
 	get_video_metadata(vn);   //re-retrieve metadata from file
 	memcpy(vidname,vn,10);    //create local copy of vn
@@ -284,7 +285,8 @@ void playvideo(char *vn) {
 		// }
 	// }
 	
-	
+	dbg_sprintf(dbgout,"VIDEO ADR 2: %x, AT DATA: %x\n",&video,video.segments);
+
 	
 	free(vptr_array);
 	//free(decomp_buffer);
