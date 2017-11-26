@@ -31,6 +31,12 @@ def checkdel(fnp,isdel):  #True to check if deleted, False to check if exist (ye
 ensure_dir(TEMP_DIR)
 ensure_dir(TEMP_PNG_DIR)
 ensure_dir(OUTPUT_DIR)
+try:
+    Image.Image.tobytes()
+except AttributeError:
+    Image.Image.tobytes = Image.Image.tostring
+except:
+    pass
 
 ENCODER_NAMES = {   1: "1B3X-ZX7",
                     2: "2B3X-ZX7",
@@ -38,6 +44,7 @@ ENCODER_NAMES = {   1: "1B3X-ZX7",
                     4: "1B1X-ZX7",
                     5: "4C3X-ZX7",
                     6: "4A3X-ZX7",
+                    7: "4B3X-ZX7",
 }
 FPSEG_BY_ENCODER = {    1:30,
                         2:15,
@@ -45,6 +52,7 @@ FPSEG_BY_ENCODER = {    1:30,
                         4:10,
                         5:15,
                         6:10,
+                        7:15,
 }
 
 
@@ -244,8 +252,8 @@ def rgbpaltolist(s):
         g = ord(s[i+1])&~0x7
         b = ord(s[i+2])&~0x7
         o.append((r,g,b))
-    o = list(set(o))      #remove duplicates
-    o.sort()
+#    o = list(set(o))      #remove duplicates
+#    o.sort()
 #    if (0,0,0) not in o: o.insert(0,(0,0,0))  #black must always be in the palette
 #    o.insert(0,o.pop(o.index((0,0,0))))       #black is always at the front
     if len(o)<256:
@@ -260,7 +268,7 @@ def rgbpaltolist(s):
 # Conversion to palettized image without dithering, sourced from:
 # https://stackoverflow.com/questions/29433243/convert-image-to-specific-palette-using-pil-without-dithering
 
-def quantizetopalette(silf, palette, dither=False):
+def quantizetopalette(silf, palette, dither=Image.NONE):
     silf.load()
     palette.load()
     if palette.mode != "P":
@@ -269,7 +277,7 @@ def quantizetopalette(silf, palette, dither=False):
         raise ValueError(
             "only RGB or L mode images can be quantized to a palette"
             )
-    im = silf.im.convert("P", 1 if dither else 0, palette.im)
+    im = silf.im.convert("P",dither , palette.im)
     try:
         return silf._new(im)
     except AttributeError:
@@ -283,11 +291,12 @@ def usage():
     print "Additional options:"
     print "-e ENCODER  = Uses a particular encoder. ENCODER are as follows:"
     print "              1 = 1bpp b/w, 3x scaling from 96 by X"
-    print "              2 = 2bpp b/dg/lg/w, 3x scaling from 96 by X"
+    print "              2 = 2bpp grayscale, 3x scaling from 96 by X"
     print "              3 = (decoder not supported)"
     print "              4 = 1bpp b/w, no scaling from 176 by X"
-    print "              5 = 4bpp 16 color, 3x scaling from 96 by X"
-    print "              6 = 4bpp adaptive palette, 3x scaling from 96 by X"
+    print "              5 = 4bpp color, 3x scaling from 96 by X"
+    print "              6 = 4bpp adaptive color, 3x scaling from 96 by X"
+    print "              7 = 4bpp grayscale palette, 3x scaling from 96 by X"
     print "        -d  = Uses dithering. May increase filesize."
     print "        -f  = Force reconversion of video data"
     print ' -t "title" = Adds title information to the project'
@@ -392,6 +401,9 @@ if doffmpeg:
     elif vid_encoder == '6':
         hres = 96
         vres = -2
+    elif vid_encoder == '7':
+        hres = 96
+        vres = -2
     else:
         print "Illegal encoder value was used. Cannot encode video."
         sys.exit(2)
@@ -450,6 +462,14 @@ newimgobj = Image.new("P",(img_width,img_height))
 #app.update_idletasks()
 #app.update()
 
+#construct 4bpp grayscale palette outside the encoder loop
+gspal4bpp = []
+for i in range(16): gspal4bpp.extend([i<4,i<<4,i<<4])
+    
+
+
+
+
 
 for f in flist:
     img = Image.open(GETIMGPATH(f))
@@ -480,8 +500,8 @@ for f in flist:
         imgdata = img.convert('1',None,dithering).tobytes()
     elif vid_encoder == '5':
         palette = [0,0,0, 128,0,0, 0,128,0, 0,0,128,
-                   128,128,0, 0,128,128, 128,0,128, 128,128,128,
-                   128,128,128, 255,0,0, 0,255,0, 0,0,255,
+                   128,128,0, 0,128,128, 128,0,128,  80, 80, 80,
+                   160,160,160, 255,0,0, 0,255,0, 0,0,255,
                    255,255,0, 0,255,255, 255,0,255, 255,255,255]
         palimg.putpalette(palette*16)
         timg = quantizetopalette(img,palimg,dithering)
@@ -493,10 +513,10 @@ for f in flist:
                 t += (ord(timgdat[(i*2)+j])&15)<<(4*j)
             imgdata.append(t)
     elif vid_encoder == '6':
-        timg = img.convert("P",palette=Image.ADAPTIVE,colors=15)
+        timg = img.convert("P",palette=Image.ADAPTIVE,colors=15,dither=dithering)
         p = rgbpaltolist(timg.palette.getdata()[1])
-        palimg.putpalette(list(chain.from_iterable(p)))
-        timg = quantizetopalette(img,palimg,dithering)
+#        palimg.putpalette(list(chain.from_iterable(p)))
+#        timg = quantizetopalette(img,palimg,dithering)
         palettebin = ''
         for i in range(0,15):
             r,g,b = ((p[i][0]>>3)&0x1F,(p[i][1]>>3)&0x1F,(p[i][2]>>3)&0x1F)
@@ -510,6 +530,16 @@ for f in flist:
                 t += (ord(timgdat[(i*2)+j])&15)<<(4*j)
             imgdata.append(t)
         imgdata = bytearray(palettebin) + bytearray(imgdata)
+    elif vid_encoder == '7':
+        palimg.putpalette(gspal4bpp*16)
+        timg = quantizetopalette(img,palimg,dithering)
+        timgdat = timg.tobytes()
+        #app.updateframe(timg)
+        for i in range(len(timgdat)/2):
+            t = 0
+            for j in range(2):
+                t += (ord(timgdat[(i*2)+j])&15)<<(4*j)
+            imgdata.append(t)
     else:
         print "Illegal encoder value passed ("+vid_encoder+"). Cannot convert video."
         sys.exit(2)
