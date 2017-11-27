@@ -19,6 +19,7 @@
 ;KEEP VARIABLES IN THE SLACK OF THE STACK, POINTED TO BY IY
 #DEFINE SEGMENT_ARRAY 3
 #DEFINE VIDEO_STRUCT 6
+#DEFINE START_SEG_PTR -57
 #DEFINE CUR_SEG_PTR  -60
 #DEFINE END_SEG_PTR  -63
 #DEFINE OLD_BUFFER -69
@@ -69,6 +70,7 @@ INITIAL_FIELD_START:
 		LD DE,(IX+9)
 		LD HL,(IY+SEGMENT_ARRAY)
 		LD (IY+CUR_SEG_PTR),HL
+		LD (IY+START_SEG_PTR),HL
 		ADD HL,DE
 		ADD HL,DE
 		ADD HL,DE
@@ -136,6 +138,7 @@ INIFIELD_LOAD_NEXT_SEGMENT:
 		OR A
 		SBC HL,DE
 		JP NC,INIFIELD_LOAD_NEXT_SEGMENT
+INIFIELD_STOP_PLAYBACK:
 		;------------------------------------------------------------
 		;PUTAWAY - RESET TIMERS AND LCD HARDWARE.
 		XOR A
@@ -169,6 +172,88 @@ _:	BIT 7,(HL)
 	LD (HL),3
 	RET	
 
+getKbd:
+	PUSH HL
+		LD	HL,$F50200	;DI_MODE=$F5XX00
+		LD	(HL),H
+		XOR	A,A
+_:		CP	A,(HL)
+		JR	NZ,-_
+		LD	L,$12  ;GROUP 1 (top keys)
+		LD	A,(HL)
+		LD	L,$1E  ;GROUP 7 (dpad)
+		XOR	(HL)
+		AND	%11110000
+		XOR (HL)   ;b0:dwn b1:lft b2:rig b3:up b4:yeq b5:2nd b6:mod b7:del
+	POP HL
+	RET
+
+
+
+waitAnyKey:
+	CALL keyWait
+_:	CALL getKbd
+	OR	A
+	JR Z,-_
+keyWait:
+	CALL getKbd
+	OR 	A
+	JR	NZ,keyWait
+	RET
+
+	
+doControls:
+_:	CALL getKbd
+	BIT 5,A
+	JR	Z,_doctrls_skipPause
+	CALL waitAnyKey
+	JR	-_
+_doctrls_skipPause:
+	BIT	6,A
+	JR	Z,_doctrls_skipStop
+	POP AF
+	POP	AF
+	POP	IY
+	CALL keyWait
+	JP INIFIELD_STOP_PLAYBACK
+_doctrls_skipStop:
+	BIT	1,A
+	JR	Z,_doctrls_skipRewind
+	LD	HL,-3
+	JR _doctrls_changepos
+_doctrls_skipRewind:
+	BIT	2,A
+	JR	Z,_doctrls_skipFastFwd
+	LD	HL,3
+_doctrls_changepos:
+	POP	AF  ;rem doctrls to drawsegment
+	POP IX  ;rem drawsegment to main
+	POP IY  ;get saved stack pointer position
+	LD	DE,(IY+CUR_SEG_PTR)
+	ADD	HL,DE
+	EX	DE,HL
+	LD	HL,(IY+START_SEG_PTR)
+	OR	A
+	SBC HL,DE  ;STARTSEG-NEWSEG. IF ZERO, CONTINUE. THEN IF NC, SKIP WRITEBACK
+	JR	Z,+_
+	JR	NC,_doctrls_donotchangepos
+_:	LD	HL,(IY+END_SEG_PTR)
+	OR	A
+	DEC HL
+	DEC HL
+	DEC HL
+	SBC HL,DE  ;ENDSEG-NEWSEG. IF C, WENT PAST END: SKIP WRITEBACK
+	JP	C,INIFIELD_STOP_PLAYBACK
+	LD (IY+CUR_SEG_PTR),DE
+_doctrls_donotchangepos:
+	JP	INIFIELD_LOAD_NEXT_SEGMENT	
+_doctrls_skipFastFwd:
+	RET
+
+
+
+
+	
 	
 	
 TIMER_VALUES: ;30fps = 32768/30 ~~ 1092.2
@@ -247,6 +332,7 @@ MAIN_FIELD_WRITE_LINE:
 		JR NZ,MAIN_FIELD_WRITE_FRAME
 	POP HL
 	INC HL    ;-77 CFR
+	CALL doControls
 	DEC (HL)
 	JR NZ,DRAW_SEGMENT
 	RET
@@ -332,6 +418,7 @@ MAIN_FIELD_END:
 
 
 ;END OF FILE
+.ECHO "Assembling decoder 4B3X-ZX7"
 .ECHO "Initial field size: ",INITIAL_FIELD_END-INITIAL_FIELD_START,"\n","Main field size: ",MAIN_FIELD_END-MAIN_FIELD_START,"\n"
 .END
 .END

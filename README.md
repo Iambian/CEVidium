@@ -43,6 +43,28 @@ Copyrights and Licenses
   See CEVDECODER/tools/SPASM_LICENSE for details.
 * The rest of Project CEVidium was done by me.
   See LICENSE for details.
+  
+Controlling the Video Player
+----------------------------
+
+Controls on video selection:
+
+| Keys     |  Function         |
+|---------:|:------------------|
+|[Mode]    | Quit CEVidium     |
+|[2nd]     | Start video       |
+|arrow keys| Show next video   |
+
+Controls during playback:
+
+| Keys     |  Function                         |
+|---------:|:----------------------------------|
+|[Mode]    | Retrun to video selection         |
+|[2nd]     | (Un)pause the video               |
+|[Left]    | Rewind video by one segment       |
+|[Right]   | Fast forward video by one segment |
+
+
  
 Version History
 ---------------
