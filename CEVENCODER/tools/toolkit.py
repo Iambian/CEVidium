@@ -1,9 +1,9 @@
 print "Loading libraries"
-from PIL import Image,ImageTk,ImagePalette
+from PIL import Image,ImageTk,ImagePalette,ImageChops
 from ffmpy import FFmpeg
 from itertools import chain
 import Tkinter as tk
-import sys,os,ctypes,subprocess,getopt,shutil,struct,time,colorsys
+import sys,os,ctypes,subprocess,getopt,shutil,struct,time,colorsys,math
 
 np  = os.path.normpath
 cwd = os.getcwd()
@@ -193,6 +193,7 @@ class Framebuf():
     
     def flushtofile(self,output_filename,output_encoding):
         global ENCODER_NAMES,OUTPUT_DIR
+        if self.frame_buffer: self.addframe(None)
         outfilename = str(os.path.splitext(os.path.basename(output_filename))[0])
         video_decoder = ENCODER_NAMES[int(output_encoding)]
         self.cmpr_arr = sorted(self.cmpr_arr,key=lambda i:i.size,reverse=True)
@@ -239,13 +240,13 @@ class Framebuf():
         export8xv(OUTPUT_DIR,outfilename,mfiledata)
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-# Image filtering
+# Image filtering and processing
 
 def gethsv(t):
     r,g,b = (i/255.0 for i in t)
     return colorsys.rgb_to_hsv(r,g,b)
 
-def rgbpaltolist(s):
+def paltolist(s):
     o = []
     for i in range(0,15*3,3):
         r = ord(s[i+0])&~0x7
@@ -256,13 +257,74 @@ def rgbpaltolist(s):
 #    o.sort()
 #    if (0,0,0) not in o: o.insert(0,(0,0,0))  #black must always be in the palette
 #    o.insert(0,o.pop(o.index((0,0,0))))       #black is always at the front
-    if len(o)<256:
+    if len(o)<16:
+        o += [(0,0,0)]*(16-len(o))
+        o = o * 16
+    elif len(o)<64:
+        o += [(0,0,0)]*(64-len(o))
+        o = o * 4
+    elif len(o)<128:
+        o += [(0,0,0)]*(128-len(o))
+        o = o * 2
+    else:
         o += [(0,0,0)]*(256-len(o))
 #    if o[0] != (0,0,0):
 #        raise ValueError("First val of out array is not (0,0,0) despite best efforts")
     return o
 
-
+# Compares two images scanning with width/hdiv to account for bitrate differences to
+# align with whole byte boundaries. Returns 5-tuple:
+# (subframeWhereImagesWereDifferent, subframeX, subframeY, subframeW, subframeH)
+# It can also return None if the entire frame was different
+# or it can return [None] if the two frames are identical
+def finddiffrect(img1,img2,hdiv):
+    global img_width,img_height
+    def findedge(a,b,wa,ha): #miniaturized code for detecting edges of change
+        global img_width,img_height
+        w,h = (img_width,img_height)
+        f = False
+        for x in wa:
+            for y in ha:
+                if a[y*w+x]!=b[y*w+x]:
+                    f = True
+                    break
+            if f: break
+        xr = x
+        f = False
+        for y in ha:
+            for x in wa:
+                if a[y*w+x]!=b[y*w+x]:
+                    f = True
+                    break
+            if f: break
+        return (xr,y)
+    s1 = img1.tobytes()
+    s2 = img2.tobytes()
+    if img1.mode != img2.mode:
+        raise ValueError("Image mode mismatch during block compare")
+    if img1.mode == "RGB":
+        s1 = [ord(s1[i])+(ord(s1[i+1])<<8)+(ord(s1[i+2])<<16) for i in range(0,len(s1),3)]
+        s2 = [ord(s2[i])+(ord(s2[i+1])<<8)+(ord(s2[i+2])<<16) for i in range(0,len(s2),3)]
+    elif img1.mode not in ("L","P"):
+        raise ValueError("Input image mode ("+str(img1.mode)+") is unsupported.")
+    
+    if s1 == s2:
+        return [None,]
+    warr = range(img_width)  #Optimization to avoid having to
+    harr = range(img_height) #recreate each array on loop
+    
+    #find left and top edges
+    left,top = findedge(s1,s2,warr,harr)
+    #find left and bottom edges
+    warr.reverse()
+    harr.reverse()
+    right,bottom = findedge(s1,s2,warr,harr)
+    #set bounds on left and right to be byte-aligned
+    left = int(math.floor((left)/hdiv)*hdiv)
+    right = int(math.ceil((right+1)/hdiv)*hdiv-1)
+    if (left,right,top,bottom) == (0,img_width-1,0,img_height-1): return None
+    return [left,top,right+1-left,bottom+1-top]
+    
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 # Conversion to palettized image without dithering, sourced from:
@@ -465,14 +527,18 @@ newimgobj = Image.new("P",(img_width,img_height))
 #construct 4bpp grayscale palette outside the encoder loop
 gspal4bpp = []
 for i in range(16): gspal4bpp.extend([i<4,i<<4,i<<4])
-    
-
-
-
-
+previmg = None
+prevpal = None
+prevpaldat = None
+imagedata = None
 
 for f in flist:
-    img = Image.open(GETIMGPATH(f))
+    i = Image.open(GETIMGPATH(f)).convert("RGB").tobytes()
+    i = iter( [ord(b)&~7 for b in i] )
+    i = zip(i,i,i)
+    img = Image.new("RGB",(img_width,img_height))
+    img.putdata(i)
+    
     imgdata = []
     if vid_encoder == '1':
         imgdata = img.convert('1',None,dithering).tobytes()
@@ -513,23 +579,56 @@ for f in flist:
                 t += (ord(timgdat[(i*2)+j])&15)<<(4*j)
             imgdata.append(t)
     elif vid_encoder == '6':
-        timg = img.convert("P",palette=Image.ADAPTIVE,colors=15,dither=dithering)
-        p = rgbpaltolist(timg.palette.getdata()[1])
-#        palimg.putpalette(list(chain.from_iterable(p)))
-#        timg = quantizetopalette(img,palimg,dithering)
-        palettebin = ''
-        for i in range(0,15):
-            r,g,b = ((p[i][0]>>3)&0x1F,(p[i][1]>>3)&0x1F,(p[i][2]>>3)&0x1F)
-            t = (r<<10)+(g<<5)+b
-            palettebin += struct.pack("<H",t)
-        timgdat = str(bytearray(timg.tobytes()))
-        #app.updateframe(timg)
-        for i in range(len(timgdat)/2):
-            t = 0
-            for j in range(2):
-                t += (ord(timgdat[(i*2)+j])&15)<<(4*j)
-            imgdata.append(t)
-        imgdata = bytearray(palettebin) + bytearray(imgdata)
+        matcharr = None
+        if previmg:
+            matcharr = finddiffrect(previmg,img,2.0)
+        if matcharr == None:
+            print "No match"
+            timg = img.convert("P",palette=Image.ADAPTIVE,colors=15,dither=dithering)
+            p = paltolist(timg.palette.getdata()[1])
+            palettebin = ''
+            for i in range(0,15):
+                r,g,b = ((p[i][0]>>3)&0x1F,(p[i][1]>>3)&0x1F,(p[i][2]>>3)&0x1F)
+                t = ((r<<10)+(g<<5)+b)&0x7FFF
+                palettebin += struct.pack("<H",t)
+            timgdat = str(bytearray(timg.tobytes()))
+            for i in range(len(timgdat)/2):
+                t = 0
+                for j in range(2):
+                    t += (ord(timgdat[(i*2)+j])&15)<<(4*j)
+                imgdata.append(t)
+            imgdata = bytearray(palettebin) + bytearray(imgdata)
+            previmg = img  #_.putdata(img.tobytes())
+            prevpal = p
+            prevpaldat = palettebin
+        elif matcharr==[None]:
+            print "Perfect match found"
+            imgdata = bytearray(struct.pack("<H",(1<<15)+(1<<14)))
+        else:
+            print "Partial match detected: "+str(matcharr)
+            crx,cry,crw,crh = matcharr
+            nimg = Image.new("RGB",(img_width,img_height))
+            nimg.paste(previmg)
+            nimg.paste(img.crop((crx,cry,crx+crw,cry+crh)),(crx,cry))
+            t1 = nimg.tobytes()
+            t2 = img.tobytes()
+            if t1 != t2:
+                raise ValueError("Image mismatch during reconstruction")
+            palimg.putpalette(chain.from_iterable(prevpal))
+            timg = quantizetopalette(img,palimg,dithering)
+            timgdat = timg.crop((crx,cry,crx+crw,cry+crh)).tobytes()
+            for i in range(len(timgdat)/2):
+                t = 0
+                for j in range(2):
+                    t += (ord(timgdat[(i*2)+j])&15)<<(4*j)
+                imgdata.append(t)
+            incdat  = struct.pack("<H",(1<<15) + crx)
+            incdat += struct.pack("B",crw)
+            incdat += struct.pack("B",cry)
+            incdat += struct.pack("B",crh)
+            imgdata = bytearray(incdat) + bytearray(imgdata)
+            previmg = nimg
+            
     elif vid_encoder == '7':
         palimg.putpalette(gspal4bpp*16)
         timg = quantizetopalette(img,palimg,dithering)
@@ -544,8 +643,11 @@ for f in flist:
         print "Illegal encoder value passed ("+vid_encoder+"). Cannot convert video."
         sys.exit(2)
     fb.addframe(imgdata)
-    
-fb.framecap(imgdata)  #makes sure that video capped with same last image
+
+if vid_encoder == '6':
+    d = (1<<15)+(1<<14)+(1<<13)
+    print "sent frame data"+str(d)
+    fb.addframe(struct.pack("<H",d)+"DEADBEEF") #EOF marker
 fb.flushtofile(invidname,vid_encoder)
     
     

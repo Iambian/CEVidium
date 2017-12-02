@@ -10,7 +10,7 @@
 #DEFINE BUFFER2 $D49600  ;ANOTHER 16KB 
 
 #DEFINE INITIAL_FIELD_LOCATION $D52C00   ;MAIN FIELD LOCATION
-#DEFINE MAIN_FIELD_LOCATION $D53100      ;CHANGE LATER TO $E30800 IF SMALL ENOUGH.
+#DEFINE MAIN_FIELD_LOCATION $D53800      ;CHANGE LATER TO $E30800 IF SMALL ENOUGH.
 #DEFINE DECOMPRESSION_BUFFER $D54000     ;THIS BUFFER IS *JUST* LARGE ENOUGH
 
 #DEFINE ONE_SECOND 32768
@@ -255,6 +255,97 @@ _doctrls_donotchangepos:
 _doctrls_skipFastFwd:
 	RET
 	
+swapDraw:
+	LD HL,$E30010
+	LD IX,(HL)
+	INC HL
+	LD A,(HL)
+	XOR $96
+	LD (HL),A  ;FANCY BUFFER FLIPPING
+	RET
+	
+setupFrameState:
+	BIT 7,(IY+1)  ;IF SET, THIS IS NOT A DIRECT FRAME COPY
+	JR NZ,_sfs_control_packet
+	CALL swapDraw
+	CALL waitOneFrame
+	LD A,C
+	LD DE,$E30200  ;V
+	LEA HL,IY+0    ;V
+	LD BC,30       ;V
+	ADD IY,BC      ;V
+	LDIR           ;COPY PALETTE DATA TO HARDWARE PALETTE
+	LD C,A
+	LD A,48
+	LD (MAIN_FIELD_WRITE_FRAME+1),A
+	LD HL,160+160+16
+	LD (MFADLP),HL
+_sfs_set_frame_offset:
+MFWOFST .EQU $+1
+	LD DE,0
+	ADD IX,DE
+	RET
+_sfs_control_packet:
+	BIT 6,(IY+1)  ;IF SET, THIS FRAME IS SAME AS PRIOR FRAME. DO NOTHING ELSE.
+	JR NZ,_sfs_identical_copy
+	CALL swapDraw
+	CALL waitOneFrame
+	
+	LD HL,$E30010  ;COPY PREVIOUS FRAME
+	LD DE,(HL)
+	LD HL,(HL)
+	LD A,H
+	XOR $96
+	LD H,A
+	LD A,C
+	LD BC,38400
+	EX DE,HL
+	LDIR
+	LD C,A
+	
+	LD E,(IY+0)  ;XPOS
+	SRL E        ;DIV 2
+	LD D,3
+	MLT DE       ;CONV TO 4bpp screenpos
+	ADD IX,DE    ;MOVE OFFSET TO THE LEFT
+	LD A,(IY+2)   ;WIDTH
+	RRA           ;DIV BY 2, cheap and no carry-in
+	LD (MAIN_FIELD_WRITE_FRAME+1),A
+	LD B,A
+	ADD A,A
+	ADD A,B  ;MULT 3
+	CPL
+	ADD A,160+1
+	LD E,A
+	LD HL,320
+	ADD HL,DE
+	LD (MFADLP),HL
+	LD A,(IY+3)   ;HEIGHT
+	LD D,A
+	ADD A,A
+	ADD A,D
+	LD E,A        ;FACTOR 3
+	LD D,160      ;SCREEN WIDTH
+	MLT DE
+	ADD IX,DE     ;OFFSET DOWN
+	LD C,(IY+4)
+	LEA IY,IY+5
+	JR _sfs_set_frame_offset
+_sfs_identical_copy:
+	BIT 5,(IY+1)
+	JR NZ,_sfs_eof_marker
+	LEA IY,IY+2
+	CALL waitOneFrame
+	POP AF        ;REMOVE RETURN ADDRESS
+	JP MAIN_FIELD_SKIP_FRAME
+_sfs_eof_marker:
+	POP AF   ;REMOVE RETURN PTR
+	POP AF   ;REMOVE HL
+	POP AF   ;REMOVE RETURN PTR
+	POP IY   ;REMOVE IY
+	JP INIFIELD_STOP_PLAYBACK
+	
+	
 TIMER_VALUES: ;30fps = 32768/30 ~~ 1092.2
 .db $45,$04,$80,$00  ;Initial value: 1093+INT_MAX+1 to take advantage of sign flag.
 .db $01,$00,$00,$00  ;reset value. Hang on 1.
@@ -273,33 +364,10 @@ DRAW_SEGMENT:
 	DEC HL     ;-78 FRH
 	LD C,(HL)  ;READ FRAME_HEIGHT
 	PUSH HL
-		LD HL,$E30010
-		LD IX,(HL)
-		INC HL
-		LD A,(HL)
-		XOR $96
-		LD (HL),A  ;FANCY BUFFER FLIPPING
-		; LD HL,$E30010
-		; LD L,$28
-		; SET 2,(HL)
-		; LD L,$20
-; _:		BIT 2,(HL)
-		; JR Z,-_
-		CALL waitOneFrame			
-		PUSH BC
-			LD DE,$E30200
-			LEA HL,IY+0
-			LD BC,30
-			ADD IY,BC
-			LDIR
-;			LEA IY,IY+30
-		POP BC
-MFWOFST .EQU $+1
-		LD DE,0
-		ADD IX,DE
-		LD DE,MAIN_FIELD_END
+		CALL setupFrameState  ;Checks frame data and sets up renderer state
 MAIN_FIELD_WRITE_FRAME:
 		LD B,48
+		LD DE,MAIN_FIELD_END
 MAIN_FIELD_WRITE_LINE:
 		LD L,(IY+0)
 		LD H,3
@@ -313,14 +381,13 @@ MAIN_FIELD_WRITE_LINE:
 		LD (IX+126),HL
 		LEA IX,IX-34+3
 		INC IY
-;		LEA IX,IX+3
 		DJNZ MAIN_FIELD_WRITE_LINE
-		;16 to next line, 160+160 for next set to write. 336 total. brkdn: 122,122,92
-		LEA IX,IX+122
-		LEA IX,IX+122
-		LEA IX,IX+92
+MFADLP .EQU $+1
+		LD DE,160+160+16
+		ADD IX,DE
 		DEC C
 		JR NZ,MAIN_FIELD_WRITE_FRAME
+MAIN_FIELD_SKIP_FRAME:
 	POP HL
 	INC HL    ;-77 CFR
 	CALL doControls

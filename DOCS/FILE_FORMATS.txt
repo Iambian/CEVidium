@@ -29,5 +29,24 @@
 	dw SIZE_OF_FIELD_DATA_SECTION
 	ds FIELD_DATA_SECTION
 
+;ADAPTIVE FRAME FORMAT:
+* I-frames are sent as fifteen RGB entries each channel 5 bits wide,
+  followed by a bitmap of the frame of maximum size.
+	.dw 0<<15 + R<<10 + G<<5 + B<<0
+	.ds framedata
+* Frames that include a single subframe difference are as follows:
+	.dw BoxX + 1<<15 + 0<<14 + 0<<13 + 0<<12 + 0<<11 + 0<<10 + 0<9
+	.db BoxW
+	.db BoxY
+	.db BoxH
+	.ds framedata
+* Frame that indicates that the previous frame was identical
+	.dw 0 + 1<<15 + 1<<14 + 0<<13 + 0<<12 + 0<<11 + 0<<10 + 0<9
+* End of file marker:
+	.dw 0 + 1<<15 + 1<<14 + 1<<13 + 0<<12 + 0<<11 + 0<<10 + 0<9
+
+
+
+
 
 
