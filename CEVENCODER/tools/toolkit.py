@@ -2,8 +2,10 @@ print "Loading libraries"
 from PIL import Image,ImageTk,ImagePalette,ImageChops
 from ffmpy import FFmpeg
 from itertools import chain
+from itertools import izip_longest
+from collections import OrderedDict
 import Tkinter as tk
-import sys,os,ctypes,subprocess,getopt,shutil,struct,time,colorsys,math
+import sys,os,ctypes,subprocess,getopt,shutil,struct,time,colorsys,math,copy
 
 np  = os.path.normpath
 cwd = os.getcwd()
@@ -246,17 +248,32 @@ def gethsv(t):
     r,g,b = (i/255.0 for i in t)
     return colorsys.rgb_to_hsv(r,g,b)
 
-def paltolist(s):
+def paltolist(s,prvpal=None):
     o = []
     for i in range(0,15*3,3):
         r = ord(s[i+0])&~0x7
         g = ord(s[i+1])&~0x7
         b = ord(s[i+2])&~0x7
         o.append((r,g,b))
-#    o = list(set(o))      #remove duplicates
-#    o.sort()
-#    if (0,0,0) not in o: o.insert(0,(0,0,0))  #black must always be in the palette
-#    o.insert(0,o.pop(o.index((0,0,0))))       #black is always at the front
+    o = list(OrderedDict.fromkeys(o[:16]))    #removes dupes, preserves order
+    if (0,0,0) not in o: o.insert(0,(0,0,0))  #black must always be in the palette
+    o.insert(0,o.pop(o.index((0,0,0))))       #black is always at the front
+    # If prvpal is passed in, sort new list by best possible match wrt prvpal
+    if prvpal:
+        oldvals = list(OrderedDict.fromkeys(prvpal[:16])) #removes duplicates, preserves order
+        newvals = o[:]
+        n = []
+        #match up all possible oldvals with newvals and leave blanks for nonmatch
+        for i in oldvals:
+            if i in newvals: n.append(newvals.pop(newvals.index(i)))
+            else: n.append(None)
+        for i in newvals:
+            if None in n: n[n.index(None)] = i
+            else: n.append(i)
+        for i in range(len(n)):
+            if n[i] == None: n[i] = (0,0,0)
+        if n[0] != (0,0,0): ValueError("Well, shit.")
+        o = n
     if len(o)<16:
         o += [(0,0,0)]*(16-len(o))
         o = o * 16
@@ -582,15 +599,27 @@ for f in flist:
         matcharr = None
         if previmg:
             matcharr = finddiffrect(previmg,img,2.0)
+        timg = img.convert("P",palette=Image.ADAPTIVE,colors=15,dither=dithering)
+        p = paltolist(timg.palette.getdata()[1])
         if matcharr == None:
             print "No match"
-            timg = img.convert("P",palette=Image.ADAPTIVE,colors=15,dither=dithering)
-            p = paltolist(timg.palette.getdata()[1])
+            ''' TODO: 
+                Change indexing to force index 0 to be black, skip and 
+                have decoder assume index 0 is always black.
+                Then change partial frame matcher to do
+                paltolist(timg.palette.getdata()[1]) against oldpal and then
+                set the resulting palette to new palette but only at very end.
+                Integrate delta palette format (bitfield-of-change) and
+                implement it in decoder.
+                
+            '''
             palettebin = ''
-            for i in range(0,15):
+            for i in range(1,16):
                 r,g,b = ((p[i][0]>>3)&0x1F,(p[i][1]>>3)&0x1F,(p[i][2]>>3)&0x1F)
                 t = ((r<<10)+(g<<5)+b)&0x7FFF
                 palettebin += struct.pack("<H",t)
+            palimg.putpalette(chain.from_iterable(p))
+            timg = quantizetopalette(img,palimg,dithering)
             timgdat = str(bytearray(timg.tobytes()))
             for i in range(len(timgdat)/2):
                 t = 0
@@ -605,7 +634,24 @@ for f in flist:
             print "Perfect match found"
             imgdata = bytearray(struct.pack("<H",(1<<15)+(1<<14)))
         else:
-            print "Partial match detected: "+str(matcharr)
+            pn = paltolist(timg.palette.getdata()[1],prevpal)
+            dp = 0
+            pm = 0
+            palettebin = ""
+            for prv,cur,i in zip(prevpal,pn,range(0,16)):  #zip longest, None-pad
+                if not i: continue
+                dp >>= 1
+                if prv==cur or cur==(0,0,0):
+                    pass  #do nothing. A zero bit was already shifted downstream.
+                else:
+                    dp += 0x8000
+                    pm += 1
+                    r,g,b = ((cur[0]>>3)&0x1F,(cur[1]>>3)&0x1F,(cur[2]>>3)&0x1F)
+                    t = ((r<<10)+(g<<5)+b)&0x7FFF
+                    palettebin += struct.pack("<H",t)
+            dp >>= 1
+            palettebin  = struct.pack("<H",dp) + palettebin
+            print "Partial match detected: "+str(matcharr)+", matching pal: "+str(pm)+", data "+format(dp,"04X")
             crx,cry,crw,crh = matcharr
             nimg = Image.new("RGB",(img_width,img_height))
             nimg.paste(previmg)
@@ -614,7 +660,7 @@ for f in flist:
             t2 = img.tobytes()
             if t1 != t2:
                 raise ValueError("Image mismatch during reconstruction")
-            palimg.putpalette(chain.from_iterable(prevpal))
+            palimg.putpalette(chain.from_iterable(pn))
             timg = quantizetopalette(img,palimg,dithering)
             timgdat = timg.crop((crx,cry,crx+crw,cry+crh)).tobytes()
             for i in range(len(timgdat)/2):
@@ -626,8 +672,10 @@ for f in flist:
             incdat += struct.pack("B",crw)
             incdat += struct.pack("B",cry)
             incdat += struct.pack("B",crh)
+            incdat += palettebin
             imgdata = bytearray(incdat) + bytearray(imgdata)
             previmg = nimg
+            prevpal = pn
             
     elif vid_encoder == '7':
         palimg.putpalette(gspal4bpp*16)

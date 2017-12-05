@@ -45,7 +45,7 @@ INITIAL_FIELD_START:
 		LD HL,BUFFER1
 		LD DE,BUFFER1+1
 		LD BC,$012BFF
-		LD (HL),$FF
+		LD (HL),0
 		LDIR
 		;SET UP LCD CONTROLLER
 		;Note: It's possible you may need to deal with LCDTiming0 and LCDTiming1
@@ -61,7 +61,7 @@ INITIAL_FIELD_START:
 		;SET 2,(IX+$19)           SET BIG-ENDIAN PIXEL ORDER
 		OR A
 		SBC HL,HL
-		LD ($E30200+(15*2)),HL  ;LAST PALETTE ENTRY TO ZERO (BLACK)
+		LD ($E30200),HL  ;FIRST PALETTE ENTRY TO ZERO (BLACK)
 		;GET ADDRESS FOR VIDEO STRUCT
 		LD IX,(IY+VIDEO_STRUCT)  ;GET STRUCT
 		;COPY RELEVENT INFORMATION FROM STRUCT TO STACK SLACK
@@ -255,6 +255,26 @@ _doctrls_donotchangepos:
 _doctrls_skipFastFwd:
 	RET
 	
+writeDeltaPalette: ;IY handled. IY must point to start of data field.
+	LD B,15
+	LD HL,$E30202
+	LD DE,(IY+0)
+	LEA IY,IY+2
+_:	SRL D
+	RR  E
+	JR NC,+_
+	LD A,(IY+0)
+	LD (HL),A
+	INC HL
+	LD A,(IY+1)
+	LD (HL),A
+	DEC HL
+	LEA IY,IY+2
+_:	INC HL
+	INC HL
+	DJNZ --_
+	RET
+	
 swapDraw:
 	LD HL,$E30010
 	LD IX,(HL)
@@ -270,7 +290,7 @@ setupFrameState:
 	CALL swapDraw
 	CALL waitOneFrame
 	LD A,C
-	LD DE,$E30200  ;V
+	LD DE,$E30202  ;V
 	LEA HL,IY+0    ;V
 	LD BC,30       ;V
 	ADD IY,BC      ;V
@@ -330,6 +350,7 @@ _sfs_control_packet:
 	ADD IX,DE     ;OFFSET DOWN
 	LD C,(IY+4)
 	LEA IY,IY+5
+	CALL writeDeltaPalette
 	JR _sfs_set_frame_offset
 _sfs_identical_copy:
 	BIT 5,(IY+1)
