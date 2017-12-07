@@ -42,6 +42,8 @@ char *getnextvideo();
 uint8_t texty;
 char codecname[] = {0,0,0,0,0,0,0,0,0};  //9 bytes, always alias to video.codec
 uint8_t* decoder_start_address;
+uint8_t bitdepthsize = 7;
+char *bitdepthcode[] = {"1bpp","2bpp","4bpp gs","4bpp color","4bpp adaptive","8bpp xlibc","8bpp adaptive"};
 
 uint8_t grays[] = {0x00,0x6B,0xB5,0xFF};
 
@@ -53,6 +55,7 @@ struct {
 	int w;
 	int h;
 	int segframes;
+	int bitdepth;
 } video;
 
 void main(void) {
@@ -100,6 +103,10 @@ void main(void) {
 			
 			gfx_PrintStringXY("Decoder: ",5,90);
 			gfx_PrintString(video.codec);
+			
+			gfx_PrintStringXY("Bit Depth: ",5,100);
+			if (video.bitdepth>(bitdepthsize-1)) gfx_PrintString("N/A");
+			else gfx_PrintString(bitdepthcode[video.bitdepth]);
 			
 			gfx_SetTextXY(290,230);
 			gfx_PrintString(VERSION_INFO);
@@ -328,6 +335,8 @@ void printerr(char *s) {
 void get_video_metadata(char *main_file_name) {
 	ti_var_t tmpslot;
 	
+	memset(&video,0,sizeof video);
+	
 	video.codec = codecname;
 	if (tmpslot = ti_Open(main_file_name,"r"))
 	{
@@ -342,11 +351,9 @@ void get_video_metadata(char *main_file_name) {
 		ti_Read(&video.w,2,1,tmpslot);         //Get frame width
 		ti_Read(&video.h,2,1,tmpslot);         //Get frame height
 		ti_Read(&video.segframes,1,1,tmpslot); //Get number of frames per segment
+		ti_Read(&video.bitdepth,1,1,tmpslot);  //Get video bit depth
 	} else {
-		memset(video.codec,0,9);
-		video.title = "";
-		video.author = "";
-		video.segments = video.segframes = video.w = video.h = 0;
+		video.title = video.author = video.codec = "";
 	}
 	ti_Close(tmpslot);
 	return;

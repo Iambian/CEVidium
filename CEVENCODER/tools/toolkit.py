@@ -15,6 +15,8 @@ TEMP_PNG_DIR = np(cwd+"/obj/png")
 OUTPUT_DIR   = np(cwd+"/bin")
 STATUS_FILE  = np(TEMP_DIR+'/curstate')
 
+BIT_DEPTH = 0xFF
+
 def GETIMGPATH(fname): return np(TEMP_PNG_DIR+"/"+fname)
 def GETIMGNAMES():
     global TEMP_PNG_DIR
@@ -194,7 +196,7 @@ class Framebuf():
                 self.addframe(framedata)
     
     def flushtofile(self,output_filename,output_encoding):
-        global ENCODER_NAMES,OUTPUT_DIR
+        global ENCODER_NAMES,OUTPUT_DIR,BIT_DEPTH
         if self.frame_buffer: self.addframe(None)
         outfilename = str(os.path.splitext(os.path.basename(output_filename))[0])
         video_decoder = ENCODER_NAMES[int(output_encoding)]
@@ -239,6 +241,7 @@ class Framebuf():
         mfiledata += struct.pack("<H",self.vid_w)
         mfiledata += struct.pack("<H",self.vid_h)
         mfiledata += struct.pack("B",self.frames_per_segment)
+        mfiledata += struct.pack("B",BIT_DEPTH)
         export8xv(OUTPUT_DIR,outfilename,mfiledata)
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
