@@ -4,8 +4,10 @@ from ffmpy import FFmpeg
 from itertools import chain
 from itertools import izip_longest
 from collections import OrderedDict
+from math import ceil,floor
 import Tkinter as tk
-import sys,os,ctypes,subprocess,getopt,shutil,struct,time,colorsys,math,copy
+import sys,os,ctypes,subprocess,getopt,shutil,struct,time,colorsys,copy
+
 
 np  = os.path.normpath
 cwd = os.getcwd()
@@ -77,43 +79,30 @@ def writeFile(fn,a):
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 # Export data to appvar
-TI_VAR_PROG_TYPE = 0x05
-TI_VAR_PROTPROG_TYPE = 0x06
-TI_VAR_APPVAR_TYPE = 0x15
-TI_VAR_FLAG_RAM = 0x00
-TI_VAR_FLAG_ARCHIVED = 0x80
+TI_VAR_PROG_TYPE, TI_VAR_PROTPROG_TYPE, TI_VAR_APPVAR_TYPE = (0x05,0x06,0x15)
+TI_VAR_FLAG_RAM, TI_VAR_FLAG_ARCHIVED = (0x00,0x80)
 
-def export8xv(filepath,filename,filedata):
+#fpath: Path to output file; fname: file's base name (no extension);
+#fdata: bytearray-compatible iterable containing just the file's data section
+def export8xv(fpath,fname,fdata):
     # Ensure that filedata is a string
-    if isinstance(filedata,list): filedata = str(bytearray(filedata))
+    fdata = str(bytearray(fdata))
     # Add size bytes to file data as per (PROT)PROG/APPVAR data structure
-    dsl = len(filedata)&0xFF
-    dsh = (len(filedata)>>8)&0xFF
-    filedata = str(bytearray([dsl,dsh]))+filedata
+    fdata = struct.pack('<H',len(fdata)) + fdata
     # Construct variable header
-    vsl = len(filedata)&0xFF
-    vsh = (len(filedata)>>8)&0xFF
-    vh  = str(bytearray([0x0D,0x00,vsl,vsh,TI_VAR_APPVAR_TYPE]))
-    vh += filename.ljust(8,'\x00')[:8]
-    vh += str(bytearray([0x00,TI_VAR_FLAG_ARCHIVED,vsl,vsh]))
-    # Pull together variable metadata for TI8X file header
-    varentry = vh + filedata
-    varsizel = len(varentry)&0xFF
-    varsizeh = (len(varentry)>>8)&0xFF
-    varchksum = sum([ord(i) for i in varentry])
-    vchkl = varchksum&0xFF
-    vchkh = (varchksum>>8)&0xFF
-    # Construct TI8X file header
-    h  = "**TI83F*"
-    h += str(bytearray([0x1A,0x0A,0x00]))
-    h += "Rawr. Gravy. Steaks. Cherries!".ljust(42)[:42]  #Always makes comments exactly 42 chars wide.
-    h += str(bytearray([varsizel,varsizeh]))
-    h += varentry
-    h += str(bytearray([vchkl,vchkh]))
-    # Write data out to file
-    writeFile(np(filepath+"/"+filename+".8xv"),h)
-    return
-
+    vheader  = "\x0D\x00" + struct.pack("<H",len(fdata)) + chr(TI_VAR_APPVAR_TYPE)
+    vheader += fname.ljust(8,'\x00')[:8]
+    vheader += "\x00" + chr(TI_VAR_FLAG_ARCHIVED) + struct.pack("<H",len(fdata))
+    variable = vheader + fdata
+    # Construct header, add file data, then add footer
+    output  = "**TI83F*\x1A\x0A\x00"
+    output += "Cherries! Steaks! Gravy! Rawr!".ljust(42)[:42]
+    output += struct.pack('<H',len(variable)) + variable
+    output += struct.pack('<H',sum(ord(i) for i in variable)&0xFFFF)
+    # Output result to file
+    writeFile(np(fpath+"/"+fname+".8xv"),output)
+    
+    
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 # Video window class
 
@@ -292,58 +281,36 @@ def paltolist(s,prvpal=None):
 #        raise ValueError("First val of out array is not (0,0,0) despite best efforts")
     return o
 
-# Compares two images scanning with width/hdiv to account for bitrate differences to
-# align with whole byte boundaries. Returns 5-tuple:
-# (subframeWhereImagesWereDifferent, subframeX, subframeY, subframeW, subframeH)
-# It can also return None if the entire frame was different
-# or it can return [None] if the two frames are identical
-def finddiffrect(img1,img2,hdiv):
-    global img_width,img_height
-    def findedge(a,b,wa,ha): #miniaturized code for detecting edges of change
-        global img_width,img_height
-        w,h = (img_width,img_height)
-        f = False
-        for x in wa:
-            for y in ha:
-                if a[y*w+x]!=b[y*w+x]:
-                    f = True
-                    break
-            if f: break
-        xr = x
-        f = False
-        for y in ha:
+# Compares two images to detect the subframe in which both images are different.
+# The left and right side are adjusted by dividing it by "hdiv" to account for
+# different bpp that the images will be converted and packed into.
+# Can return one of the following:
+# 4-tuple (subFrameX, subFrameY, subFrameW, subFrameH) indicating subframe bounds
+# 1-tuple (None,) indicating that the two frames are identical
+# NoneType object None indicating that the entire frame was different
+def findDiffRect(im1,im2,hdiv,w,h):
+    def fedge(d,wa,ha,w):
+        def scx(d,wa,ha,w):
             for x in wa:
-                if a[y*w+x]!=b[y*w+x]:
-                    f = True
-                    break
-            if f: break
-        return (xr,y)
-    s1 = img1.tobytes()
-    s2 = img2.tobytes()
-    if img1.mode != img2.mode:
-        raise ValueError("Image mode mismatch during block compare")
-    if img1.mode == "RGB":
-        s1 = [ord(s1[i])+(ord(s1[i+1])<<8)+(ord(s1[i+2])<<16) for i in range(0,len(s1),3)]
-        s2 = [ord(s2[i])+(ord(s2[i+1])<<8)+(ord(s2[i+2])<<16) for i in range(0,len(s2),3)]
-    elif img1.mode not in ("L","P"):
-        raise ValueError("Input image mode ("+str(img1.mode)+") is unsupported.")
-    
-    if s1 == s2:
-        return [None,]
-    warr = range(img_width)  #Optimization to avoid having to
-    harr = range(img_height) #recreate each array on loop
-    
-    #find left and top edges
-    left,top = findedge(s1,s2,warr,harr)
-    #find left and bottom edges
-    warr.reverse()
-    harr.reverse()
-    right,bottom = findedge(s1,s2,warr,harr)
-    #set bounds on left and right to be byte-aligned
-    left = int(math.floor((left)/hdiv)*hdiv)
-    right = int(math.ceil((right+1)/hdiv)*hdiv-1)
-    if (left,right,top,bottom) == (0,img_width-1,0,img_height-1): return None
-    return [left,top,right+1-left,bottom+1-top]
+                for y in ha:
+                    if d[y*w+x]: return x
+        def scy(d,wa,ha,w):
+            for y in ha:
+                for x in wa:
+                    if d[y*w+x]: return y
+        return (scx(d,wa,ha,w),scy(d,wa,ha,w))
+    if im1.mode != "RGB": raise ValueError("Image mode must be RGB. Gave: "+im1.mode)
+    d = ImageChops.difference(im1,im2).tobytes()
+    d = tuple(ord(d[i])+ord(d[i+1])*256+ord(d[i+2])*65536 for i in range(0,len(d),3))
+    if not any(d): return (None,)
+    wa,ha = (range(w),range(h))
+    l,t = fedge(d,wa,ha,w)   #find left and top edges
+    wa.reverse()
+    ha.reverse()
+    r,b = fedge(d,wa,ha,w)   #find right and bottom edges
+    l,r = (int(floor(l/hdiv)*hdiv),int(ceil((r+1)/hdiv)*hdiv-1))  #adjust bounds
+    if (l,r,t,b) == (0,w-1,0,h-1): return None
+    return [l,t,r+1-l,b+1-t]
     
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -497,7 +464,7 @@ if doffmpeg:
         print "Converting video to target dimensions"
         FFmpeg(
             inputs  = { invidname: '-y'},
-            outputs = { of1: '-vf scale='+str(hres)+':'+str(vres)+':flags=neighbor'},
+            outputs = { of1: '-vf scale='+str(hres)+':'+str(vres)+':flags=neighbor -an'},
         ).run()
         print "Outputting individual frames to .png files"
         FFmpeg(
@@ -521,6 +488,7 @@ with open(STATUS_FILE,"w") as f:
 print "Collecting image data..."
 
 img_width,img_height = (0,0)
+print str(os.listdir(OUTPUT_DIR))
 fl = [f for f in os.listdir(OUTPUT_DIR) if os.path.isfile(np(OUTPUT_DIR+'/'+f)) and f[:5]==invidname[:5]]
 for i in fl: os.remove(np(OUTPUT_DIR+'/'+i))
 
@@ -545,6 +513,11 @@ newimgobj = Image.new("P",(img_width,img_height))
 #app.update()
 
 #construct 4bpp grayscale palette outside the encoder loop
+pal1bpp_bw = [(0,0,0),(255,255,255)]*128
+pal2bpp_gs = [(i,i,i) for i in [0,85,170,255]]*64
+pal2bpp_gs = [(i+(i<<4),i+(i<<4),i+(i<<4)) in range(16)]*16
+
+
 gspal4bpp = []
 for i in range(16): gspal4bpp.extend([i<4,i<<4,i<<4])
 previmg = None
@@ -586,8 +559,8 @@ for f in flist:
         imgdata = img.convert('1',None,dithering).tobytes()
     elif vid_encoder == '5':
         palette = [0,0,0, 128,0,0, 0,128,0, 0,0,128,
-                   128,128,0, 0,128,128, 128,0,128,  80, 80, 80,
-                   160,160,160, 255,0,0, 0,255,0, 0,0,255,
+                   128,128,0, 0,128,128, 128,0,128,  85, 85, 85,
+                   170,170,170, 255,0,0, 0,255,0, 0,0,255,
                    255,255,0, 0,255,255, 255,0,255, 255,255,255]
         palimg.putpalette(palette*16)
         timg = quantizetopalette(img,palimg,dithering)
@@ -601,7 +574,7 @@ for f in flist:
     elif vid_encoder == '6':
         matcharr = None
         if previmg:
-            matcharr = finddiffrect(previmg,img,2.0)
+            matcharr = findDiffRect(previmg,img,2.0,img_width,img_height)
         timg = img.convert("P",palette=Image.ADAPTIVE,colors=15,dither=dithering)
         p = paltolist(timg.palette.getdata()[1])
         if matcharr == None:
@@ -633,7 +606,7 @@ for f in flist:
             previmg = img  #_.putdata(img.tobytes())
             prevpal = p
             prevpaldat = palettebin
-        elif matcharr==[None]:
+        elif matcharr==(None,):
             print "Perfect match found"
             imgdata = bytearray(struct.pack("<H",(1<<15)+(1<<14)))
         else:
