@@ -75,15 +75,23 @@ pal4bpp_gs = flatten([(i+(i<<4),i+(i<<4),i+(i<<4)) in range(16)]*16)
 pal4bpp_col= [0,0,0,85,85,85,170,170,170,255,255,255,
               127,0,0, 0,127,0, 0,0,127, 127,127,0, 127,0,127, 0,127,127,
               255,0,0, 0,255,0, 0,0,255, 255,255,0, 255,0,255, 0,255,255]*16
+if len(config.enco)>3 and config.enco[2]=='A':
+    if config.enco[3]=='4': adalooparr = tuple(range(1,16))
+    elif config.enco[3]=='8': adalooparr = tuple(range(1,256))
+    else: raise ValueError("Illegal bit value for adaptive palette passed")
+
 previmg = None
-prevpal = None
+prevpal = None   # These palettes are lists of 3-tuples
+curpal = None    # containing (r,g,b) values.
 
 for f in imglist:
+    # Process input image to reduce bit depth to rgb555
     i = Image.open(f).convert("RGB").tobytes()
     i = iter( [ord(b)&~7 for b in i] )
     img = Image.new("RGB",(img_width,img_height))
     img.putdata(zip(i,i,i))
     imgdata = []
+    # Process input image according to encoder
     if config.enco[:2] == "M1":
         if config.enco[2:] == "B1":
             bppdivider = 8.0
@@ -91,20 +99,19 @@ for f in imglist:
             palimg.putpalette(pal1bpp)
             nimg = extern.quantizetopalette(img,palimg,dithering)
             if previmg:
-                t = extern.findDiffRect(nimg,previmg,bppdivider)
+                t = extern.findDiffRect(previmg,nimg,bppdivider)
                 if t==(None,):
                     imgdata = "\x03"
                 elif t==None:
                     imgdata = extern.imgToPackedData(nimg,1)
-                
-                
-            
-            
-            
-            
-            
-            
-            
+                    previmg = nimg
+                else:
+                    timg = nimg.crop(t)
+                    previmg.paste(timg,t)
+                    if previmg.tobytes() != img.tobytes():
+                        raise ValueError("Image recomposition mismatch. This shouldn't happen.")
+                    imgdata = extern.imgToPackedData(timg,1)
+                    previmg = nimg
             pass
         elif config.enco[2:] == "G2":
             bppdivider = 4
@@ -122,6 +129,36 @@ for f in imglist:
         
     else:
         raise ValueError("Illegal encoder value was passed.")
+        
+    # Palette processing for adaptive palette codecs
+    if len(config.enco)>3 and config.enco[2]=='A':
+        palarr = []
+        palidx = 0
+        palbin = ""
+        if prevpal:
+            for i in adalooparr:
+                palidx >>= 1
+                if curpal[i] and curpal[i]!=prevpal[i]:
+                    palidx |= 0x8000
+                    if config.enco[3]=='4':
+                        palarr.append(curpal[i])
+                    else:
+                        palarr.append((i,curpal[i]))
+                palidx >>= 1  #make up for last entry unused
+        else:
+            if config.enco[3]=='4':
+                palidx = 0x7FFF
+                palarr = curpal[1:16]
+            else:
+                palarr = [0] + curpal[1:256]
+        if config.enco[3]=='4':
+            palbin = struct.pack("<H",palidx)
+            for i in palarr: palbin += extern.rgb24torgb555(i)
+        else:
+            for i in palarr:
+                palbin += struct.pack("B",i[0]) + extern.rgb24torgb555(i[1])
+        prevpal = curpal
+    # All processing completed. Buffer frame data for write
     fb.addframe(imgdata)
 fb.addframe("\x00\x00\x00") #End of Video packet
 fb.flushtofile()

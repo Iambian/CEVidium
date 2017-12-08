@@ -186,6 +186,9 @@ class Framebuf():
 # Converts a 3-tuple (r,g,b) to (h,s,v)
 def gethsv(t): return colorsys.rgb_to_hsv(*(i/255.0 for i in t))
 
+def rgb24torgb555(rgbtuple):
+    return struct.pack("<H",((rgbtuple[0]>>3)<<10)+((rgbtuple[1]>>3)<<5)+(rgbtuple[2]>>3))
+
 # Processes a raw palette from a PIL Image object to a 256-list of 3-tuples
 # containing (r,g,b) values, using only the first 16 entries of the palette
 # for the purpose of creating a 4bpp adaptive palette.
@@ -376,7 +379,7 @@ class Config(object):
         
     def getBitDepth(self):
         if len(self.enco)==4:
-            try: i = ["B1","G2","G4","C4","A4","C8","A8","CG"].index(self.enco[2:])
+            try: i = ["B1","G2","G4","C4","A4","G8","C8","A8","CF"].index(self.enco[2:])
             except: ValueError("Invalid codec subcode")
         else:
             i=-1
