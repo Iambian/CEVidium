@@ -1,11 +1,11 @@
 print "Loading libraries"
 from PIL import Image,ImageTk,ImagePalette,ImageChops
+import Tkinter as tk
 from ffmpy import FFmpeg
 from itertools import chain
 from itertools import izip_longest
 from collections import OrderedDict
 from math import ceil,floor
-import Tkinter as tk
 import sys,os,ctypes,subprocess,getopt,shutil,struct,time,colorsys,copy
 
 

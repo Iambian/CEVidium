@@ -1,6 +1,6 @@
 print "External library file loading"
-import sys,os,subprocess,time,struct
-from PIL import Image,ImageChops
+import sys,os,subprocess,time,struct,Tkinter
+from PIL import Image,ImageChops,ImageTk
 from math import floor,ceil
 
 np,cwd,gbn = (os.path.normpath,os.getcwd(),os.path.basename)
@@ -47,6 +47,27 @@ def writeFile(fn,a):
     with open(fn,"wb+") as f: f.write(bytearray(a))
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+# Video window class
+
+class Application(Tkinter.Frame):
+    def __init__(self, master=None):
+        Tkinter.Frame.__init__(self, master)
+        self.master.title("* Ohhhh yesss!")
+        self.master.geometry('200x200')
+        self.master.minsize(400,300)
+        self.pack()
+        self.img = ImageTk.PhotoImage(Image.new('RGB',(96,72),0))
+        self.canvas = Tkinter.Canvas(self.master,width=320,height=240)
+        self.canvas.place(x=10,y=10,width=320,height=240)
+        self.canvas.configure(bg='white',width=96,height=72,state=Tkinter.NORMAL)
+        self.imgobj = self.canvas.create_image(1,1,image=self.img,anchor=Tkinter.NW,state=Tkinter.NORMAL)
+    def updateframe(self,pimg):
+        self.img = ImageTk.PhotoImage(pimg)
+        self.canvas.itemconfig(self.imgobj,image=self.img)
+        self.update_idletasks()
+        self.update()
+        
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 # Export data to TI calculator appvar type
 TI_VAR_PROG_TYPE, TI_VAR_PROTPROG_TYPE, TI_VAR_APPVAR_TYPE = (0x05,0x06,0x15)
 TI_VAR_FLAG_RAM, TI_VAR_FLAG_ARCHIVED = (0x00,0x80)
@@ -59,9 +80,9 @@ def export8xv(fpath,fname,fdata):
     # Add size bytes to file data as per (PROT)PROG/APPVAR data structure
     fdata = struct.pack('<H',len(fdata)) + fdata
     # Construct variable header
-    vheader  = "\x0D\x00" + struct.path("<H",len(fdata)) + chr(TI_VAR_APPVAR_TYPE)
+    vheader  = "\x0D\x00" + struct.pack("<H",len(fdata)) + chr(TI_VAR_APPVAR_TYPE)
     vheader += fname.ljust(8,'\x00')[:8]
-    vheader += "\x00" + chr(TI_VAR_FLAG_ARCHIVED) + struct.path("<H",len(fdata))
+    vheader += "\x00" + chr(TI_VAR_FLAG_ARCHIVED) + struct.pack("<H",len(fdata))
     variable = vheader + fdata
     # Construct header, add file data, then add footer
     output  = "**TI83F*\x1A\x0A\x00"
@@ -94,7 +115,7 @@ class Framebuf():
         self.vid_w, self.vid_h = config.getImgDims()
         self.vid_title = config.titl
         self.vid_author = config.auth
-        self.bit_depth = config.getBitDepth()
+        self.bit_depth = config.getBitDepthCode()
         self.videoname = config.vname
         self.encoding = config.enco
         
@@ -266,17 +287,17 @@ def findDiffRect(im1,im2,hdiv):
 # Accepts a palette image file 8bpp and an output bpp with which to pack the data.
 # Outputs packed data.
 def imgToPackedData(img,bpp):
-    a = tuple(bytearay(img.tobytes()))
+    a = tuple(bytearray(img.tobytes()))
     d = []
-    if bpp==1: b,c = (8,(0,1,2,3,4,5,6,7))
-    elif bpp==2: b,c = (4,(0,2,4,6))
-    elif bpp==4: b,c = (2,(0,4))
+    if bpp==1: b,c,m = (8,(0,1,2,3,4,5,6,7),0x01)
+    elif bpp==2: b,c,m = (4,(0,2,4,6),0x03)
+    elif bpp==4: b,c,m = (2,(0,4),0x0F)
     else: ValueError("Invalid bpp ("+str(bpp)+") passed. Only 1,2,4 accepted")
     for i in range(len(a)/b):
         t = 0
-        for j,k in enumerate(c): t += (a[i*8+j]&1)<<k
+        for j,k in enumerate(c): t += (a[i*b+j]&m)<<k
         d.append(t)
-    return d
+    return str(bytearray(d))
 
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -303,7 +324,7 @@ def getImageList():
 
 #Singleton pattern. Probably not needed.
 class Config(object):
-    def __new__(cls):
+    def __new__(cls,*args):
         if not hasattr(cls,'instance'): cls.instance = super(Config,cls).__new__(cls)
         return cls.instance
     def __init__(self,statusfile):
@@ -316,9 +337,10 @@ class Config(object):
         
     def update(self,videoname,encodername,title,author):
         def cleanPngBuffer():
+            global TIMGDIR
             a = getImageList()
             for i in a:
-                try: os.remove(i)
+                try: os.remove(np(TIMGDIR+'/'+i))
                 except Exception as e: print e
         pass
         if videoname:
@@ -334,7 +356,7 @@ class Config(object):
         if author: self.auth = author
         if not os.path.isfile(self.vname):
             raise IOError("File "+str(self.vname)+" does not exist.")
-        self.getBitDepth()  #simply call it to make sure that decoder subcode is valid
+        self.getBitDepthCode()  #simply call it to make sure that decoder subcode is valid
         self.getFramesPerSegment() #just call to make sure decoder can support subcode
         
     def save(self):
@@ -344,8 +366,8 @@ class Config(object):
         global TDIR,TIMGDIR
         from ffmpy import FFmpeg
         def chk(self,v): return self.enco.startswith(v)
-        if not (self.doffmepg or force_reprocess): return
-        if self.chk('M1'): hres = 96 ; vres = -2
+        if not (self.doffmpeg or force_reprocess): return
+        if chk(self,'M1'): hres = 96 ; vres = -2 ; vflags = "neighbor"
         else: raise ValueError("Illegal encoder value was passed. Cannot encode video")
         
         o1,o2,oi = (np(TDIR+'/t1.mp4'), np(TDIR+'/t2.mp4'), np(TIMGDIR+'/i%05d.png'))
@@ -353,7 +375,7 @@ class Config(object):
             print "Converting video to target dimensions"
             FFmpeg(
                 inputs  = { self.vname: '-y'},
-                outputs = { o1: '-vf scale='+str(hres)+':'+str(vres)+'flags=neighbor -an'},
+                outputs = { o1: '-vf scale='+str(hres)+':'+str(vres)+':flags='+str(vflags)+' -an'},
             ).run()
             print "Outputting individual frames to .png files"
             FFmpeg(
@@ -367,17 +389,17 @@ class Config(object):
     
     def cleanOutput(self):
         global OUTDIR
-        fl = [f for f in os.listdir if os.path.isfile(OUTDIR+"/"+f) and f[:5]==self.vname[:5]]
+        fl = [f for f in os.listdir(OUTDIR) if os.path.isfile(OUTDIR+"/"+f) and f[:5]==self.vname[:5]]
         for i in fl: os.remove(np(OUTDIR+'/'+i))
 
     def getImgList(self):
         global TIMGDIR
-        return [np(TIMGDIR+'/'+i for i in sorted(getImageList())]
+        return [np(TIMGDIR+'/'+i) for i in sorted(getImageList())]
         
     def getImgDims(self):
         return Image.open(self.getImgList()[0]).size
         
-    def getBitDepth(self):
+    def getBitDepthCode(self):
         if len(self.enco)==4:
             try: i = ["B1","G2","G4","C4","A4","G8","C8","A8","CF"].index(self.enco[2:])
             except: ValueError("Invalid codec subcode")
@@ -386,13 +408,15 @@ class Config(object):
         return i
         
     def getFramesPerSegment(self):
-        i = self.getBitDepth()
+        i = self.getBitDepthCode()
         en= self.enco[:2]
+        r = None
         if i<0:
             r = ENCFPSEG[en]
         else:
-            try: r = ENCFPSEG[en](i)
+            try: r = ENCFPSEG[en][i]
             except: ValueError("Decoder "+str(en)+" does not support subtype "+str(self.enco[2:]))
+        if r == None: RuntimeError("Failure to return frames per segment")
         return r
         
         

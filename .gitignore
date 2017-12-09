@@ -5,3 +5,4 @@
 /CEVENCODER/*.mp4
 /CEVDECODER/bin
 /CEVDECODER/old
+/CEVENCODER/tools/*.pyc

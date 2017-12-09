@@ -18,13 +18,14 @@
 
 #DEFINE VSEG_ARR 3
 #DEFINE VSTRUCT  6
-#DEFINE VSEG_STR -10
-#DEFINE VSEG_CUR -13
-#DEFINE VSEG_END -16
-#DEFINE PREV_BUF -19
-#DEFINE PREV_LMO -22
-#DEFINE M_FRAMES -25
-#DEFINE C_FRAME  -26
+#DEFINE VSEG_STR -30
+#DEFINE VSEG_CUR -33
+#DEFINE VSEG_END -36
+#DEFINE PREV_BUF -39
+#DEFINE PREV_LMO -42
+#DEFINE M_FRAMES -45
+#DEFINE C_FRAME  -46
+#DEFINE F_HEIGHT -47
 
 #DEFINE V_CODEC  0
 #DEFINE V_TITLE  3
@@ -43,7 +44,7 @@
 ;===================================================================================
 ;===================================================================================
 ;===================================================================================
-.DW MF_END-MF_START \ .DL MAIN_FIELD_LOC \ .ORG INITIAL_FIELD_LOCATION
+.DW MF_END-MF_START \ .DL MAIN_FIELD_LOC \ .ORG MAIN_FIELD_LOC
 ;In: (SP+3) = ptr to data segment array, (SP+6) = ptr to video metadata struct
 MF_START:
 	DI
@@ -52,9 +53,10 @@ MF_START:
 	LD HL,(IY+VSTRUCT)
 	LD BC,V_BDEPTH
 	ADD HL,BC
-	LD A,(HL)
+	LD A,(HL)   ;Fetch bit depth
 	CP 4
 	RET NC
+	;JR $
 	PUSH IX
 		PUSH AF
 		;CLEAR SCREEN BUFFERS
@@ -75,11 +77,11 @@ MF_START:
 			LD HL,(HL) \ LD DE,VLCD_PAL \ LD BC,32 \ LDIR  ;SET DEFAULT PALETTE
 		;COPY RELEVENT INFORMATION FROM STRUCT TO STACK SLACK
 			LD IX,(IY+VSTRUCT)
-			LD A,(IX+V_SEGFR)   ;***>> FOR SMC: NUMBER OF FRAMES IN EACH SEGMENT
+			LD A,(IX+V_SEGFR) \ LD (IY+M_FRAMES),A
 			LD HL,(IY+VSEG_ARR) \ LD (IY+VSEG_STR),HL \ LD (IY+VSEG_CUR),HL
 			LD DE,(IX+V_SEGS) \ ADD HL,DE \ ADD HL,DE \ ADD HL,DE \ LD (IY+VSEG_END),HL
 		;SET UP LCD HARDWARE / SCREEN BOUNDARIES
-			LD A,(IX+V_HEIGHT) \ ;***>> FOR SMC: A=MAXIMUM FRAME HEIGHT
+			LD A,(IX+V_HEIGHT) \ LD (IY+F_HEIGHT),A
 			LD E,A \ LD D,3 \ MLT DE \ LD HL,V_HEIGHT ; (MAXHEIGHT-VIDHEIGHT)/2 = DIST
 			OR A \ SBC HL,DE \ SRL H \ RR  L          ; BTWN SCREEN-TOP AND VID-TOP
 			EX DE,HL
@@ -110,7 +112,8 @@ MF_DRAW_FRAME_LOOP:
 			PUSH HL
 				CALL setupFrameState  ;Checks frame data and sets up renderer state
 				CALL drawFrame
-				CALL writeDeltaPalette
+				;CALL writeDeltaPalette
+				LEA IY,IY+2
 MF_SKIP_FRAME_DRAW:
 			POP HL
 			INC HL    ;-77 CFR
@@ -354,6 +357,7 @@ sfs_skip_eov:
 sfs_skip_rawvideo:
 	DJNZ sfs_skip_partialframe
 	;partial frame
+	JR $ ;#@#@#@#@#@#@#@#@#@#@#@#@#@#@#@#
 	CALL copyPreviousFrame
 	LD HL,(IY+0)
 	LD E,(IY+2)
@@ -363,11 +367,13 @@ sfs_skip_rawvideo:
 sfs_skip_partialframe:
 	DJNZ sfs_skip_duplicateframe
 	;duplicate frame
+	JR $ ;#@#@#@#@#@#@#@#@#@#@#@#@#@#@#@#
 	CALL copyPreviousFrame
 	POP AF
 	JP MF_SKIP_FRAME_DRAW
 sfs_skip_duplicateframe:
 	;Out of bounds video data. Do not process. End video playback.
+	JR $ ;#@#@#@#@#@#@#@#@#@#@#@#@#@#@#@#
 	POP AF
 	POP AF
 	POP IY
@@ -405,15 +411,17 @@ sdw_smc_screenofset .EQU $+2
 	POP DE
 	SBC HL,HL  ;Zero out HL
 	LD D,H     ;Zero out MSB of DE16. DEu is already zero.
-	LD L,A     ;Set adjusted X position in L
+	LD L,A     ;Set scaled X offset in L
 	;Set frame render loop parameters
-	LD A,E
+	LD A,E     ;Width in pix
 sdw_smc_wdivider .EQU $+0
 	RRA \ RRA \ RRA ;div 8 for 1bpp. RRA RRA NOP for div 4 (2bpp), RRA NOP NOP for div 2 (4bpp)
 	AND %00111111
 	LD (df_smc_hdraw),A
 	LD E,A     ;Set adjusted width in E.
 	ADD HL,DE  ;X+W is rightmost edge of render area
+	ADD HL,DE
+	ADD HL,DE  ;Scaling W up by 3 since we neglected to do this earlier.
 sdw_smc_nextrow .EQU $+1
 	LD DE,0
 	ADD HL,DE
@@ -532,6 +540,8 @@ FF_START:
 ;High speed frame render loop
 
 drawFrame:
+	JR $ ;#@#@#@#@#@#@#@#@#@#@#@#@#@#@#@#
+df_verticaldraw:
 df_smc_hdraw .EQU $+1
 	LD B,48
 	LD DE,FF_END
@@ -553,7 +563,7 @@ df_smc_nextrow .EQU $+1
 	LD DE,0
 	ADD IX,DE
 	DEC C
-	JR NZ,df_horizontaldraw
+	JR NZ,df_verticaldraw
 	RET
 	
 	
