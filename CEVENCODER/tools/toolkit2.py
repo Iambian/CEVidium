@@ -1,5 +1,5 @@
 print "Loading libraries..."
-import sys,os,getopt,Tkinter
+import sys,os,getopt,Tkinter,struct
 from PIL import Image,ImageChops,ImageTk
 from itertools import chain
 from math import floor
@@ -103,8 +103,10 @@ for imgmainidx,f in enumerate(imglist):
             palettebin = "\x00\x00"
             palimg.putpalette(pal1bpp_bw)
             nimg = extern.quantizetopalette(img,palimg,dithering)
+            app.updateframe(nimg)
             if previmg:
                 t = extern.findDiffRect(previmg,nimg,bppdivider)
+                if t and len(t)>3: tt= (t[0],t[1],t[0]+t[2],t[1]+t[3])
                 if t==(None,):
                     print "Cycle "+str(imgmainidx)+", perfect match","\r"
                     imgdata = "\x03"
@@ -115,15 +117,20 @@ for imgmainidx,f in enumerate(imglist):
                 else:
                     pct = floor((t[2]*t[3]*1.0)/(img_width*img_height)*100)
                     print "Cycle "+str(imgmainidx)+", partial mismatch "+str(pct)+"%","\r"
-                    timg = nimg.crop(t)
-                    previmg.paste(timg,t)
-                    if previmg.tobytes() != img.tobytes():
+                    timg = nimg.crop(tt)
+                    previmg.paste(timg,tt)
+                    if previmg.tobytes() != nimg.tobytes():
                         raise ValueError("Image recomposition mismatch. This shouldn't happen.")
-                    imgdata = extern.imgToPackedData(timg,1)
+                    h  = "\x02"
+                    h += struct.pack("B",t[0])
+                    h += struct.pack("B",t[1])
+                    h += struct.pack("B",t[2])
+                    h += struct.pack("B",t[3])
+                    imgdata = h + extern.imgToPackedData(timg,1)
                     previmg = nimg
             else:
-                app.updateframe(nimg)
                 imgdata = "\x01" + extern.imgToPackedData(nimg,1)
+                previmg = nimg
             pass
         elif settings.enco[2:] == "G2":
             bppdivider = 4

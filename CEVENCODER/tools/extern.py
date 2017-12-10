@@ -269,9 +269,9 @@ def findDiffRect(im1,im2,hdiv):
                     if d[y*w+x]: return y
         return (scx(d,wa,ha,w),scy(d,wa,ha,w))
     w,h = im1.size
-    d = ImageChops.difference(im1,im2).tobytes()
-    if im1.mode == "RGB":
-        d = tuple(ord(d[i])+ord(d[i+1])*256+ord(d[i+2])*65536 for i in range(0,len(d),3))
+    d = ImageChops.difference(im1.convert("RGB"),im2.convert("RGB")).tobytes()
+    d = tuple(ord(d[i])+ord(d[i+1])*256+ord(d[i+2])*65536 for i in range(0,len(d),3))
+   
     if not any(d): return (None,)
     wa,ha = (range(w),range(h))
     l,t = fedge(d,wa,ha,w)   #find left and top edges

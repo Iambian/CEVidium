@@ -18,14 +18,14 @@
 
 #DEFINE VSEG_ARR 3
 #DEFINE VSTRUCT  6
-#DEFINE VSEG_STR -30
-#DEFINE VSEG_CUR -33
-#DEFINE VSEG_END -36
-#DEFINE PREV_BUF -39
-#DEFINE PREV_LMO -42
-#DEFINE M_FRAMES -45
-#DEFINE C_FRAME  -46
-#DEFINE F_HEIGHT -47
+#DEFINE VSEG_STR -40
+#DEFINE VSEG_CUR -43
+#DEFINE VSEG_END -46
+#DEFINE PREV_BUF -49
+#DEFINE PREV_LMO -52
+#DEFINE M_FRAMES -55
+#DEFINE C_FRAME  -56
+#DEFINE F_HEIGHT -57
 
 #DEFINE V_CODEC  0
 #DEFINE V_TITLE  3
@@ -112,13 +112,12 @@ MF_DRAW_FRAME_LOOP:
 			PUSH HL
 				CALL setupFrameState  ;Checks frame data and sets up renderer state
 				CALL drawFrame
-				;CALL writeDeltaPalette
-				LEA IY,IY+2
 MF_SKIP_FRAME_DRAW:
 			POP HL
 			INC HL    ;-77 CFR
 			CALL doControls
 			DEC (HL)
+			CALL handleDeltaPaletteAndTiming  ;must preserve flags since using them too
 			JR NZ,MF_DRAW_FRAME_LOOP
 		POP IY
 		LD DE,(IY+VSEG_CUR)
@@ -144,9 +143,9 @@ MF_STOP_PLAYBACK:
 	RET
 ;===================================================================================
 ; Setup subroutines
-#DEFINE NXRW1B -((96*3)/8)+4+(320*2/8)
-#DEFINE NXRW2B -((96*3)/4)+8+(320*2/4)
-#DEFINE NXRW4B -((96*3)/2)+16+(320*2/2)
+#DEFINE NXRW1B (320*3/8)+0
+#DEFINE NXRW2B (320*3/4)+0
+#DEFINE NXRW4B (320*3/2)+0
 
 ofsAndLUTSetup1bpp:
 	LD H,40  \ MLT HL \ INC HL \ INC HL
@@ -166,8 +165,14 @@ _:		RLCA \ ADC HL,HL \ RRCA
 		LD A,40       \ LD (sdw_smc_ymultiplier),A
 		LD HL,$1F1F1F \ LD (sdw_smc_wdivider),HL
 		LD HL,NXRW1B  \ LD (sdw_smc_nextrow),HL
+		LD DE,ofsAndLUTSetup1bpp_renderer
 		;--------------------
 		JP ofsAndLUTSetup_collect
+ofsAndLUTSetup1bpp_renderer:
+	LD (IX-40),HL
+	LD (IX+40),HL
+	LEA IX,IX+3
+	JR ofsAndLUTSetup1bpp_renderer+15
 
 ofsAndLUTSetup2bpp:
 	LD H,80  \ MLT HL \ INC HL \ INC HL \ INC HL \ INC HL
@@ -187,9 +192,14 @@ _:		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RRCA \ RRCA
 		LD A,80       \ LD (sdw_smc_ymultiplier),A
 		LD HL,$1F1F00 \ LD (sdw_smc_wdivider),HL
 		LD HL,NXRW2B  \ LD (sdw_smc_nextrow),HL
+		LD DE,ofsAndLUTSetup2bpp_renderer
 		;--------------------
 		JR ofsAndLUTSetup_collect
-	
+ofsAndLUTSetup2bpp_renderer:
+	LD (IX-80),HL
+	LD (IX+80),HL
+	LEA IX,IX+3
+	JR ofsAndLUTSetup2bpp_renderer+15
 
 ofsAndLUTSetup4bpp:
 	LD H,160 \ MLT HL \ LD A,L \ ADD A,8 \ LD L,A
@@ -210,13 +220,25 @@ _:		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ 
 		LD HL,$1F0000 \ LD (sdw_smc_wdivider),HL
 		LD HL,NXRW4B  \ LD (sdw_smc_nextrow),HL
 		;--------------------
+		LD DE,ofsAndLUTSetup4bpp_renderer
 ofsAndLUTSetup_collect:
 	POP HL
 	LD (sdw_smc_screenofset),HL
+	EX DE,HL
+	LD DE,df_hdraw_smc_routine
+	LD BC,15
+	LDIR
 	RET
+ofsAndLUTSetup4bpp_renderer:
+	LEA IX,IX-34     ;3b
+	LD (IX-126),HL   ;3b
+	LEA IX,IX+68     ;3b
+	LD (IX+126),HL   ;3b
+	LEA IX,IX-34+3   ;3b - total 15 bytes
 	
 ;===================================================================================
 ; Standalone utilities
+
 
 waitOneFrame:
 	LD HL,$F20002
@@ -276,14 +298,6 @@ resetTimer:
 	LD (IX+$30),HL ;TIMER CTRL REG ENABLE, SET XTAL TIMER 1, COUNT DOWN, NO INTR
 	RET
 
-swapDraw:
-	LD HL,$E30010
-	LD IX,(HL)
-	INC HL
-	LD A,(HL)
-	XOR BUFSWAPMASK
-	LD (HL),A  ;FANCY BUFFER FLIPPING
-	RET
 
 ;===================================================================================
 ; Video player user controls
@@ -352,13 +366,13 @@ sfs_skip_eov:
 	DJNZ sfs_skip_rawvideo
 	;raw video
 	LD HL,(256*0)+0
-	LD E,96
+	LD DE,96
 	JP setDrawWindow
 sfs_skip_rawvideo:
 	DJNZ sfs_skip_partialframe
 	;partial frame
-	JR $ ;#@#@#@#@#@#@#@#@#@#@#@#@#@#@#@#
 	CALL copyPreviousFrame
+	;jr $
 	LD HL,(IY+0)
 	LD E,(IY+2)
 	LD C,(IY+3)
@@ -367,7 +381,6 @@ sfs_skip_rawvideo:
 sfs_skip_partialframe:
 	DJNZ sfs_skip_duplicateframe
 	;duplicate frame
-	JR $ ;#@#@#@#@#@#@#@#@#@#@#@#@#@#@#@#
 	CALL copyPreviousFrame
 	POP AF
 	JP MF_SKIP_FRAME_DRAW
@@ -387,19 +400,18 @@ sfs_skip_duplicateframe:
 setDrawWindow: 
 	;Set window offset
 	PUSH DE
-		SRL H   ;Predivide by 2 so x3 scale can fit in H
+		SRL L
 		PUSH HL
 		POP DE
-		ADD HL,HL  ;x2. Scaling both X and Y at the same time
-		ADD HL,DE  ;x3.
+		ADD HL,HL
+		ADD HL,DE  ;x3. Scaling both H and L at the same time.
 		EX DE,HL
 		SBC HL,HL
 sdw_smc_xdivider .EQU $+1
 		JR $
-		SRL D ;/4 for 2bpp
-		SRL D ;/8 for 1bpp
+		SRL E ;/4 for 2bpp
+		SRL E ;/8 for 1bpp
 		LD L,E
-		LD A,E  ;Scaled X offset. Preserve in A
 sdw_smc_ymultiplier .EQU $+1
 		LD E,40        ;160 for 4bpp, 80 for 2bpp, 40 for 1bpp
 		MLT DE
@@ -408,26 +420,45 @@ sdw_smc_ymultiplier .EQU $+1
 sdw_smc_screenofset .EQU $+2
 		LD IX,0
 		ADD IX,DE
+		LD DE,(VLCD_CTRL+$10)
+		ADD IX,DE
 	POP DE
-	SBC HL,HL  ;Zero out HL
-	LD D,H     ;Zero out MSB of DE16. DEu is already zero.
-	LD L,A     ;Set scaled X offset in L
+	LD A,E     ;Get img width
+	SBC HL,HL  
+	EX DE,HL   ;Zero out HL
 	;Set frame render loop parameters
-	LD A,E     ;Width in pix
 sdw_smc_wdivider .EQU $+0
 	RRA \ RRA \ RRA ;div 8 for 1bpp. RRA RRA NOP for div 4 (2bpp), RRA NOP NOP for div 2 (4bpp)
 	AND %00111111
 	LD (df_smc_hdraw),A
 	LD E,A     ;Set adjusted width in E.
-	ADD HL,DE  ;X+W is rightmost edge of render area
-	ADD HL,DE
-	ADD HL,DE  ;Scaling W up by 3 since we neglected to do this earlier.
+	ADD A,A    ;
+	ADD A,E    ;x3 to scale.
+	LD E,A
 sdw_smc_nextrow .EQU $+1
-	LD DE,0
-	ADD HL,DE
+	LD HL,0
+	SBC HL,DE
 	LD (df_smc_nextrow),HL
 	RET
 
+	
+handleDeltaPaletteAndTiming:
+	PUSH HL
+		PUSH AF
+			call writeDeltaPalette
+			;LEA IY,IY+2
+			LD HL,$E30011
+			LD A,(HL)
+			XOR BUFSWAPMASK
+			LD (HL),A  ;FANCY BUFFER FLIPPING
+		POP AF
+		PUSH AF
+			CALL NZ,waitOneFrame
+		POP AF
+	POP HL
+	RET
+	
+	
 writeDeltaPalette: ;IY handled. IY must point to start of data field.
 	LD B,15
 	LD HL,$E30202
@@ -450,6 +481,20 @@ _:	INC HL
 	
 copyPreviousFrame:
 	LD HL,(VLCD_CTRL+$10)  ;Currently active buffer
+	LD BC,$009600
+	PUSH HL
+	POP DE
+	LD A,D
+	XOR BUFSWAPMASK
+	LD D,A
+	EX DE,HL
+	LDIR
+	RET
+	
+	
+	
+	
+	;jr $
 	PUSH HL
 		LD A,H
 		XOR BUFSWAPMASK
@@ -461,7 +506,7 @@ copyPreviousFrame:
 		PUSH HL
 			EX DE,HL       ;The offset is supposed to center the image, so doubling it
 			ADD HL,HL      ;should give me the total blank area.
-			LD DE,(BUFSWAPMASK*256)  ;And this is the screen's total size.
+			LD DE,BUFSWAPMASK*256  ;And this is the screen buffer's total size.
 			EX DE,HL
 			SBC HL,DE      ;screen-blank = Frame area
 			INC HL         ;In case of inaccuracies
@@ -470,6 +515,7 @@ copyPreviousFrame:
 			POP BC
 		POP HL
 	POP DE
+	EX DE,HL  ;Figure out why we needed them swapped.
 	LDIR
 	LD C,A
 	RET
@@ -540,8 +586,9 @@ FF_START:
 ;High speed frame render loop
 
 drawFrame:
-	JR $ ;#@#@#@#@#@#@#@#@#@#@#@#@#@#@#@#
+;
 df_verticaldraw:
+;	jr $
 df_smc_hdraw .EQU $+1
 	LD B,48
 	LD DE,FF_END
@@ -552,11 +599,8 @@ df_horizontaldraw:
 	ADD HL,DE
 	LD HL,(HL)
 	LD (IX+00),HL
-	LEA IX,IX-34
-	LD (IX-126),HL
-	LEA IX,IX+68
-	LD (IX+126),HL
-	LEA IX,IX-34+3
+df_hdraw_smc_routine:
+.block 15
 	INC IY
 	DJNZ df_horizontaldraw
 df_smc_nextrow .EQU $+1
