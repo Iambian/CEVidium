@@ -101,30 +101,27 @@ for imgmainidx,f in enumerate(imglist):
         if settings.enco[2:] == "B1":
             bppdivider = 8.0
             internal_bpp = 1
-            palettebin = "\x00\x00"
             palimg.putpalette(pal1bpp_bw)
         elif settings.enco[2:] == "G2":
             bppdivider = 4.0
             internal_bpp = 2
-            palettebin = "\x00\x00"
             palimg.putpalette(pal2bpp_gs)
         elif settings.enco[2:] == "G4":
             bppdivider = 2.0
             internal_bpp = 4
-            palettebin = "\x00\x00"
             palimg.putpalette(pal4bpp_gs)
             pass
         elif settings.enco[2:] == "C4":
             bppdivider = 2.0
             internal_bpp = 4
-            palettebin = "\x00\x00"
             palimg.putpalette(pal4bpp_col)
             pass
         elif settings.enco[2:] == "A4":
             bppdivider = 2.0
             internal_bpp = 4
             #Adaptive. You'll need to construct the palette yourself then use it
-            pass
+            curpal = extern.paltolist(img.convert("P",palette=Image.ADAPTIVE,colors=15).palette.getdata()[1],None)
+            palimg.putpalette(flatten(curpal))
             
         else: ValueError("Invalid subcode passed")
         nimg = extern.quantizetopalette(img,palimg,dithering)
@@ -144,13 +141,22 @@ for imgmainidx,f in enumerate(imglist):
                 sys.stdout.write("Cycle "+str(imgmainidx)+", partial mismatch, "+str(pct)+"% difference\r")
                 timg = nimg.crop(tt)
                 previmg.paste(timg,tt)
-                if previmg.tobytes() != nimg.tobytes():
-                    dbg1 =  previmg.tobytes()
-                    dbg2 = nimg.tobytes()
+                '''
+                if previmg.convert("RGB").tobytes() != nimg.convert("RGB").tobytes():
+                    dbg1 =  previmg.convert("RGB").tobytes()
+                    dbg2 = nimg.convert("RGB").tobytes()
+                    print "\nBlatant error dump"
                     print len(dbg1)
+                    print tt
+                    print "Discrepency list as follows:"
+                    s = ""
                     for i,j,k in [(i,j,k) for i,j,k in zip(dbg1,dbg2,range(len(dbg1))) if i!=j]:
-                        print "Discrepency at "+str([(k%img_width),(k/img_width)])+" : "+str([i,j])
+                        s += "["+format(k%img_width,"02")+","+format(k/img_width,"02")+"]:"
+                        s += "["+format(ord(i),"02X")+","+format(ord(j),"02X")+"] "
+                    print s
+                    ImageChops.difference(previmg.convert("RGB"),nimg.convert("RGB")).show()
                     raise ValueError("Image recomposition mismatch. This shouldn't happen.")
+                '''
                 h  = "\x02"
                 h += struct.pack("B",t[0])
                 h += struct.pack("B",t[1])
@@ -179,7 +185,7 @@ for imgmainidx,f in enumerate(imglist):
                         palarr.append(curpal[i])
                     else:
                         palarr.append((i,curpal[i]))
-                palidx >>= 1  #make up for last entry unused
+            palidx >>= 1  #make up for last entry unused
         else:
             if settings.enco[3]=='4':
                 palidx = 0x7FFF
@@ -189,9 +195,11 @@ for imgmainidx,f in enumerate(imglist):
         if settings.enco[3]=='4':
             palbin = struct.pack("<H",palidx)
             for i in palarr: palbin += extern.rgb24torgb555(i)
+            #print "\nPalette object length"+str(len(palarr))+" with bytecode "+format(palidx,"04X")+"\n"
         else:
             for i in palarr:
                 palbin += struct.pack("B",i[0]) + extern.rgb24torgb555(i[1])
+        imgdata += palbin
         prevpal = curpal
     else:
         imgdata += "\x00\x00"

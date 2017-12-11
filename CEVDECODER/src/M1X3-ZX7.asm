@@ -54,7 +54,7 @@ MF_START:
 	LD BC,V_BDEPTH
 	ADD HL,BC
 	LD A,(HL)   ;Fetch bit depth
-	CP 4
+	CP 5
 	RET NC
 	;JR $
 	PUSH IX

@@ -2,6 +2,7 @@ print "External library file loading"
 import sys,os,subprocess,time,struct,Tkinter
 from PIL import Image,ImageChops,ImageTk
 from math import floor,ceil
+from collections import OrderedDict
 
 np,cwd,gbn = (os.path.normpath,os.getcwd(),os.path.basename)
 def getFileName(f): return os.path.splitext(gbn(f))[0]
