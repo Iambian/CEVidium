@@ -82,8 +82,8 @@ MF_START:
 			LD DE,(IX+V_SEGS) \ ADD HL,DE \ ADD HL,DE \ ADD HL,DE \ LD (IY+VSEG_END),HL
 		;SET UP LCD HARDWARE / SCREEN BOUNDARIES
 			LD A,(IX+V_HEIGHT) \ LD (IY+F_HEIGHT),A
-			LD E,A \ LD D,3 \ MLT DE \ LD HL,V_HEIGHT ; (MAXHEIGHT-VIDHEIGHT)/2 = DIST
-			OR A \ SBC HL,DE \ SRL H \ RR  L          ; BTWN SCREEN-TOP AND VID-TOP
+			LD E,A \ LD D,3 \ MLT DE \ LD HL,LCD_HEIGHT ; (MAXHEIGHT-VIDHEIGHT)/2 = DIST
+			OR A \ SBC HL,DE \ SRL H \ RR  L            ; BTWN SCREEN-TOP AND VID-TOP
 			EX DE,HL
 		POP HL
 		INC HL \ INC HL \ INC HL \ LD HL,(HL)  ;GET ADR FOR VOFFSET + LUT SETUP
@@ -148,8 +148,8 @@ MF_STOP_PLAYBACK:
 #DEFINE NXRW4B (320*3/2)+0
 
 ofsAndLUTSetup1bpp:
-	LD H,40  \ MLT HL \ INC HL \ INC HL
-	PUSH HL
+	LD D,40  \ MLT DE \ INC DE \ INC DE
+	PUSH DE
 		XOR A
 _:		LD B,8
 _:		RLCA \ ADC HL,HL \ RRCA
@@ -161,9 +161,8 @@ _:		RLCA \ ADC HL,HL \ RRCA
 		INC A
 		JR NZ,--_
 		;ADDITIONAL SMC SETUP
-		LD A,0        \ LD (sdw_smc_xdivider),A
 		LD A,40       \ LD (sdw_smc_ymultiplier),A
-		LD HL,$1F1F1F \ LD (sdw_smc_wdivider),HL
+		LD HL,$1F1F1F \ LD (sdw_smc_wdivider),HL \ LD (sdw_smc_xdivider),HL
 		LD HL,NXRW1B  \ LD (sdw_smc_nextrow),HL
 		LD DE,ofsAndLUTSetup1bpp_renderer
 		;--------------------
@@ -175,8 +174,8 @@ ofsAndLUTSetup1bpp_renderer:
 	JR ofsAndLUTSetup1bpp_renderer+15
 
 ofsAndLUTSetup2bpp:
-	LD H,80  \ MLT HL \ INC HL \ INC HL \ INC HL \ INC HL
-	PUSH HL
+	LD D,80  \ MLT DE \ INC DE \ INC DE \ INC DE \ INC DE
+	PUSH DE
 		XOR A
 _:		LD B,4
 _:		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RRCA \ RRCA
@@ -188,9 +187,8 @@ _:		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RRCA \ RRCA
 		INC A
 		JR NZ,--_
 		;ADDITIONAL SMC SETUP
-		LD A,2        \ LD (sdw_smc_xdivider),A
 		LD A,80       \ LD (sdw_smc_ymultiplier),A
-		LD HL,$1F1F00 \ LD (sdw_smc_wdivider),HL
+		LD HL,$1F1F00 \ LD (sdw_smc_wdivider),HL \ LD (sdw_smc_xdivider),HL
 		LD HL,NXRW2B  \ LD (sdw_smc_nextrow),HL
 		LD DE,ofsAndLUTSetup2bpp_renderer
 		;--------------------
@@ -202,8 +200,8 @@ ofsAndLUTSetup2bpp_renderer:
 	JR ofsAndLUTSetup2bpp_renderer+15
 
 ofsAndLUTSetup4bpp:
-	LD H,160 \ MLT HL \ LD A,L \ ADD A,8 \ LD L,A
-	PUSH HL
+	LD D,160 \ MLT DE \ LD A,E \ ADD A,8 \ LD E,A
+	PUSH DE
 		XOR A
 _:		LD B,2
 _:		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RRCA \ RRCA \ RRCA \ RRCA
@@ -215,9 +213,8 @@ _:		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ 
 		INC A
 		JR NZ,--_
 		;ADDITIONAL SMC SETUP
-		LD A,4        \ LD (sdw_smc_xdivider),A
 		LD A,160      \ LD (sdw_smc_ymultiplier),A
-		LD HL,$1F0000 \ LD (sdw_smc_wdivider),HL
+		LD HL,$1F0000 \ LD (sdw_smc_wdivider),HL \ LD (sdw_smc_xdivider),HL
 		LD HL,NXRW4B  \ LD (sdw_smc_nextrow),HL
 		;--------------------
 		LD DE,ofsAndLUTSetup4bpp_renderer
@@ -400,25 +397,25 @@ sfs_skip_duplicateframe:
 setDrawWindow: 
 	;Set window offset
 	PUSH DE
-		SRL L
-		PUSH HL
-		POP DE
-		ADD HL,HL
-		ADD HL,DE  ;x3. Scaling both H and L at the same time.
-		EX DE,HL
-		SBC HL,HL
-sdw_smc_xdivider .EQU $+1
-		JR $
-		SRL E ;/4 for 2bpp
-		SRL E ;/8 for 1bpp
-		LD L,E
+		LD A,L
+		LD L,3
+		MLT HL
 sdw_smc_ymultiplier .EQU $+1
-		LD E,40        ;160 for 4bpp, 80 for 2bpp, 40 for 1bpp
-		MLT DE
-		ADD HL,DE
+		LD H,40
+		MLT HL
 		EX DE,HL
+sdw_smc_xdivider .EQU $
+		RRCA
+		RRCA
+		RRCA
+		AND %00011111
+		LD L,A
+		LD H,3
+		MLT HL
 sdw_smc_screenofset .EQU $+2
 		LD IX,0
+		ADD HL,DE
+		EX DE,HL
 		ADD IX,DE
 		LD DE,(VLCD_CTRL+$10)
 		ADD IX,DE
@@ -553,23 +550,21 @@ palette4bpp_gs:
 .dw %0110101101011010,%0110001100011000,%0111101111011110,%0111001110011100
 palette4bpp_col:
 .dw %0000000000000000 ;0,0,0,
-.dw %0100000000000000 ;128,0,0, 
-.dw %0000001000000000 ;0,128,0, 
-.dw %0000000000010000 ;0,0,128,
-.dw %0100001000000000 ;128,128,0, 
-.dw %0000001000010000 ;0,128,128, 
-.dw %0100000000010000 ;128,0,128, 
-.dw %0100001000010000 ;128,128,128,
-.dw %0100001000010000 ;128,128,128, 
+.dw %1011000110001100 ;85,85,85,
+.dw %1101101011010110 ;170,170,170
+.dw %0111111111111111 ;255,255,255
+.dw %0011110000000000 ;127,0,0, 
+.dw %0000000111100000 ;0,127,0, 
+.dw %0000000000001111 ;0,0,127,
+.dw %0011110111100000 ;127,127,0, 
+.dw %0011110000001111 ;127,0,127, 
+.dw %0000000111101111 ;0,127,127, 
 .dw %0111110000000000 ;255,0,0, 
 .dw %0000001111100000 ;0,255,0, 
 .dw %0000000000011111 ;0,0,255,
 .dw %0111111111100000 ;255,255,0, 
-.dw %0000001111111111 ;0,255,255, 
 .dw %0111110000011111 ;255,0,255, 
-.dw %0111111111111111 ;255,255,255
-
-
+.dw %0000001111111111 ;0,255,255, 
 
 
 MF_END:

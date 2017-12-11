@@ -100,52 +100,68 @@ for imgmainidx,f in enumerate(imglist):
     if settings.enco[:2] == "M1":
         if settings.enco[2:] == "B1":
             bppdivider = 8.0
+            internal_bpp = 1
             palettebin = "\x00\x00"
             palimg.putpalette(pal1bpp_bw)
-            nimg = extern.quantizetopalette(img,palimg,dithering)
-            app.updateframe(nimg)
-            if previmg:
-                t = extern.findDiffRect(previmg,nimg,bppdivider)
-                if t and len(t)>3: tt= (t[0],t[1],t[0]+t[2],t[1]+t[3])
-                if t==(None,):
-                    print "Cycle "+str(imgmainidx)+", perfect match","\r"
-                    imgdata = "\x03"
-                elif t==None:
-                    print "Cycle "+str(imgmainidx)+", complete mismatch","\r"
-                    imgdata = "\x01" + extern.imgToPackedData(nimg,1)
-                    previmg = nimg
-                else:
-                    pct = floor((t[2]*t[3]*1.0)/(img_width*img_height)*100)
-                    print "Cycle "+str(imgmainidx)+", partial mismatch "+str(pct)+"%","\r"
-                    timg = nimg.crop(tt)
-                    previmg.paste(timg,tt)
-                    if previmg.tobytes() != nimg.tobytes():
-                        raise ValueError("Image recomposition mismatch. This shouldn't happen.")
-                    h  = "\x02"
-                    h += struct.pack("B",t[0])
-                    h += struct.pack("B",t[1])
-                    h += struct.pack("B",t[2])
-                    h += struct.pack("B",t[3])
-                    imgdata = h + extern.imgToPackedData(timg,1)
-                    previmg = nimg
-            else:
-                imgdata = "\x01" + extern.imgToPackedData(nimg,1)
-                previmg = nimg
-            pass
         elif settings.enco[2:] == "G2":
-            bppdivider = 4
-            pass
+            bppdivider = 4.0
+            internal_bpp = 2
+            palettebin = "\x00\x00"
+            palimg.putpalette(pal2bpp_gs)
         elif settings.enco[2:] == "G4":
-            bppdivider = 2
+            bppdivider = 2.0
+            internal_bpp = 4
+            palettebin = "\x00\x00"
+            palimg.putpalette(pal4bpp_gs)
             pass
         elif settings.enco[2:] == "C4":
-            bppdivider = 2
+            bppdivider = 2.0
+            internal_bpp = 4
+            palettebin = "\x00\x00"
+            palimg.putpalette(pal4bpp_col)
             pass
         elif settings.enco[2:] == "A4":
-            bppdivider = 2
+            bppdivider = 2.0
+            internal_bpp = 4
+            #Adaptive. You'll need to construct the palette yourself then use it
             pass
+            
         else: ValueError("Invalid subcode passed")
-        
+        nimg = extern.quantizetopalette(img,palimg,dithering)
+        app.updateframe(nimg)
+        if previmg:
+            t = extern.findDiffRect(previmg,nimg,bppdivider)
+            if t and len(t)>3: tt= (t[0],t[1],t[0]+t[2],t[1]+t[3])
+            if t==(None,):
+                sys.stdout.write("Cycle "+str(imgmainidx)+", perfect match\r")
+                imgdata = "\x03"
+            elif t==None:
+                sys.stdout.write("Cycle "+str(imgmainidx)+", complete mismatch\r")
+                imgdata = "\x01" + extern.imgToPackedData(nimg,internal_bpp)
+                previmg = nimg
+            else:
+                pct = floor((t[2]*t[3]*1.0)/(img_width*img_height)*100)
+                sys.stdout.write("Cycle "+str(imgmainidx)+", partial mismatch, "+str(pct)+"% difference\r")
+                timg = nimg.crop(tt)
+                previmg.paste(timg,tt)
+                if previmg.tobytes() != nimg.tobytes():
+                    dbg1 =  previmg.tobytes()
+                    dbg2 = nimg.tobytes()
+                    print len(dbg1)
+                    for i,j,k in [(i,j,k) for i,j,k in zip(dbg1,dbg2,range(len(dbg1))) if i!=j]:
+                        print "Discrepency at "+str([(k%img_width),(k/img_width)])+" : "+str([i,j])
+                    raise ValueError("Image recomposition mismatch. This shouldn't happen.")
+                h  = "\x02"
+                h += struct.pack("B",t[0])
+                h += struct.pack("B",t[1])
+                h += struct.pack("B",t[2])
+                h += struct.pack("B",t[3])
+                imgdata = h + extern.imgToPackedData(timg,internal_bpp)
+                previmg = nimg
+        else:
+            imgdata = "\x01" + extern.imgToPackedData(nimg,internal_bpp)
+            previmg = nimg
+
     else:
         raise ValueError("Illegal encoder value was passed.")
         

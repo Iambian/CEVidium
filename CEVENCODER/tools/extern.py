@@ -146,7 +146,7 @@ class Framebuf():
             self.cmpr_arr.append(CmprSeg(self.cur_segment,readFile(tfc)))
             self.raw_len += len(self.frame_buffer)
             self.cmpr_len += self.cmpr_arr[-1].size
-            sys.stdout.write("Output seg "+str(self.cur_segment)+" size "+str(self.cmpr_arr[-1].size)+"      \r")
+            sys.stdout.write("\nOutput seg "+str(self.cur_segment)+" size "+str(self.cmpr_arr[-1].size)+"      \n")
             self.frame_buffer = []
             self.cur_frame = 0
             self.cur_segment += 1
@@ -400,11 +400,14 @@ class Config(object):
         return Image.open(self.getImgList()[0]).size
         
     def getBitDepthCode(self):
+        i = None
         if len(self.enco)==4:
-            try: i = ["B1","G2","G4","C4","A4","G8","C8","A8","CF"].index(self.enco[2:])
-            except: ValueError("Invalid codec subcode")
+            try: 
+                i = ["B1","G2","G4","C4","A4","G8","C8","A8","CF"].index(self.enco[2:])
+            except Exception as e: ValueError("Invalid codec subcode")
         else:
-            i=-1
+            i = (-1)
+        if i == None: raise RuntimeError("Bit depth failed to initialize. This shouldn't happen.")
         return i
         
     def getFramesPerSegment(self):
