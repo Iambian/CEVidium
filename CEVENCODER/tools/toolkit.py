@@ -579,16 +579,6 @@ for f in flist:
         p = paltolist(timg.palette.getdata()[1])
         if matcharr == None:
             print "No match"
-            ''' TODO: 
-                Change indexing to force index 0 to be black, skip and 
-                have decoder assume index 0 is always black.
-                Then change partial frame matcher to do
-                paltolist(timg.palette.getdata()[1]) against oldpal and then
-                set the resulting palette to new palette but only at very end.
-                Integrate delta palette format (bitfield-of-change) and
-                implement it in decoder.
-                
-            '''
             palettebin = ''
             for i in range(1,16):
                 r,g,b = ((p[i][0]>>3)&0x1F,(p[i][1]>>3)&0x1F,(p[i][2]>>3)&0x1F)

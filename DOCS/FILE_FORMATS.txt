@@ -59,6 +59,9 @@
 	.db Xpos,Ypox,Width,Height
 * TYPE 0x03 : Duplicate Frame
 	;No data - the previous frame will be copied to current frame verbatim.
+* TYPE 0x04 : 8x8 Grid Frame
+	.ds ACTIVE_BITFIELD ;Bits in big-endian, bytes in little-endian. Size: (w/8*ceil(h/8))
+	.ds 8x8 squares     ;8px by 8px squares, size adjusted to input bitrate (ex. 1bpp = 8 bytes, 4bpp = 32 bytes)
 
 * Immediately after all frame data is a delta palette entry if the video palette
   is adaptive. PALETTE_BITMAP is a 16-bit bitfield whose lowest bit corresponds

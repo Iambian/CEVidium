@@ -120,50 +120,54 @@ for imgmainidx,f in enumerate(imglist):
             bppdivider = 2.0
             internal_bpp = 4
             #Adaptive. You'll need to construct the palette yourself then use it
-            curpal = extern.paltolist(img.convert("P",palette=Image.ADAPTIVE,colors=15).palette.getdata()[1],None)
+            p = img.convert("P",palette=Image.ADAPTIVE,colors=15).palette.getdata()[1]
+            curpal = extern.paltolist(p,None)
             palimg.putpalette(flatten(curpal))
             
         else: ValueError("Invalid subcode passed")
-        nimg = extern.quantizetopalette(img,palimg,dithering)
+        nimg = extern.quant2pal(img,palimg,dithering)
         app.updateframe(nimg)
         if previmg:
-            t = extern.findDiffRect(previmg,nimg,bppdivider)
+            t = extern.findDiffRect(previmg,img,bppdivider)
+            u = extern.findDiff8x8Grid(previmg,img,8)  #search in 8x8 blocks
             if t and len(t)>3: tt= (t[0],t[1],t[0]+t[2],t[1]+t[3])
             if t==(None,):
                 sys.stdout.write("Cycle "+str(imgmainidx)+", perfect match\r")
                 imgdata = "\x03"
-            elif t==None:
+            elif t==None and not any(u):
                 sys.stdout.write("Cycle "+str(imgmainidx)+", complete mismatch\r")
                 imgdata = "\x01" + extern.imgToPackedData(nimg,internal_bpp)
-                previmg = nimg
-            else:
+                previmg = img
+            elif len(t) == 4 and (t[2]*t[3])<=(len(u)/8+((len(u)-u.count(None))*8*8)):
                 pct = floor((t[2]*t[3]*1.0)/(img_width*img_height)*100)
-                sys.stdout.write("Cycle "+str(imgmainidx)+", partial mismatch, "+str(pct)+"% difference\r")
-                timg = nimg.crop(tt)
+                sys.stdout.write("Cycle "+str(imgmainidx)+", partial blck mismatch, "+str(pct)+"% difference\r")
+                timg = img.crop(tt)
                 previmg.paste(timg,tt)
-                '''
-                if previmg.convert("RGB").tobytes() != nimg.convert("RGB").tobytes():
-                    dbg1 =  previmg.convert("RGB").tobytes()
-                    dbg2 = nimg.convert("RGB").tobytes()
-                    print "\nBlatant error dump"
-                    print len(dbg1)
-                    print tt
-                    print "Discrepency list as follows:"
-                    s = ""
-                    for i,j,k in [(i,j,k) for i,j,k in zip(dbg1,dbg2,range(len(dbg1))) if i!=j]:
-                        s += "["+format(k%img_width,"02")+","+format(k/img_width,"02")+"]:"
-                        s += "["+format(ord(i),"02X")+","+format(ord(j),"02X")+"] "
-                    print s
-                    ImageChops.difference(previmg.convert("RGB"),nimg.convert("RGB")).show()
-                    raise ValueError("Image recomposition mismatch. This shouldn't happen.")
-                '''
+                if previmg.tobytes() != img.tobytes():
+                    dbg1,dgb2,s = (previmg.convert("RGB").tobytes(),img.convert("RGB").tobytes(),"")
+                    print "\nBlatant error dump\n"+str(len(dbg1))+"\n"+str(tt)+"\nDiscrepency list as follows:\n"+''.join(["["+format(k%img_width,"02")+","+format(k/img_width,"02")+"]:["+format(ord(i),"02X")+","+format(ord(j),"02X")+"] " for i,j,k in [(i,j,k) for i,j,k in zip(dbg1,dbg2,range(len(dbg1))) if i!=j]])
+                    ImageChops.difference(previmg.convert("RGB"),img.convert("RGB")).show()
+                    raise ValueError("Block image recomposition mismatch. This shouldn't happen.")
                 h  = "\x02"
                 h += struct.pack("B",t[0])
                 h += struct.pack("B",t[1])
                 h += struct.pack("B",t[2])
                 h += struct.pack("B",t[3])
-                imgdata = h + extern.imgToPackedData(timg,internal_bpp)
-                previmg = nimg
+                imgdata = h + extern.imgToPackedData(extern.quantizetopalette(timg,palimg,dithering),internal_bpp)
+                previmg = img
+            elif len(t) == 4 and (t[2]*t[3])>(len(u)/8+((len(u)-u.count(None))*8*8)):
+                pct = (len(u)-u.count(None)*1.0)/(len(u)*1.0)
+                sys.stdout.write("Cycle "+str(imgmainidx)+", partial grid mismatch, "+str(pct)+"% difference\r")
+                res = extern.test8x8Grid(previmg,u,img,8)
+                if not res[0]:
+                    raise ValueError("Grid image recomposition mismatch. This shouldn't happen.")
+                for i in range(len(u)):
+                    if u[i]: u[i] = extern.quantizetopalette(u[i],palimg,dithering)
+                imgdata = ''.join(['\x04',dumpGridData(u,8,internal_bpp)])
+            else:
+                print t
+                print u
+                ValueError("Invalid value returned from matcher")
         else:
             imgdata = "\x01" + extern.imgToPackedData(nimg,internal_bpp)
             previmg = nimg

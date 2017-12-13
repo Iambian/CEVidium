@@ -203,6 +203,7 @@ class Framebuf():
         export8xv(OUTDIR,outfilename,mfiledata)
         
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+# -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 # Image filtering and processing
 
 # Converts a 3-tuple (r,g,b) to (h,s,v)
@@ -258,17 +259,17 @@ def paltolist(s,prvpal=None):
 # 4-tuple (subFrameX, subFrameY, subFrameW, subFrameH) indicating subframe bounds
 # 1-tuple (None,) indicating that the two frames are identical
 # NoneType object None indicating that the entire frame was different
-def findDiffRect(im1,im2,hdiv):
-    def fedge(d,wa,ha,w):
-        def scx(d,wa,ha,w):
-            for x in wa:
-                for y in ha:
-                    if d[y*w+x]: return x
-        def scy(d,wa,ha,w):
+def fedge(d,wa,ha,w):
+    def scx(d,wa,ha,w):
+        for x in wa:
             for y in ha:
-                for x in wa:
-                    if d[y*w+x]: return y
-        return (scx(d,wa,ha,w),scy(d,wa,ha,w))
+                if d[y*w+x]: return x
+    def scy(d,wa,ha,w):
+        for y in ha:
+            for x in wa:
+                if d[y*w+x]: return y
+    return (scx(d,wa,ha,w),scy(d,wa,ha,w))
+def findDiffRect(im1,im2,hdiv):
     w,h = im1.size
     d = ImageChops.difference(im1.convert("RGB"),im2.convert("RGB")).tobytes()
     d = tuple(ord(d[i])+ord(d[i+1])*256+ord(d[i+2])*65536 for i in range(0,len(d),3))
@@ -284,7 +285,6 @@ def findDiffRect(im1,im2,hdiv):
     return [l,t,r+1-l,b+1-t]
     
     
-    
 # Accepts a palette image file 8bpp and an output bpp with which to pack the data.
 # Outputs packed data.
 def imgToPackedData(img,bpp):
@@ -293,13 +293,58 @@ def imgToPackedData(img,bpp):
     if bpp==1: b,c,m = (8,(0,1,2,3,4,5,6,7),0x01)
     elif bpp==2: b,c,m = (4,(0,2,4,6),0x03)
     elif bpp==4: b,c,m = (2,(0,4),0x0F)
+    elif bpp==8: return str(bytearray(a))
     else: ValueError("Invalid bpp ("+str(bpp)+") passed. Only 1,2,4 accepted")
     for i in range(len(a)/b):
         t = 0
         for j,k in enumerate(c): t += (a[i*b+j]&m)<<k
         d.append(t)
     return str(bytearray(d))
-
+    
+def findDiff8x8Grid(im1,im2,sw):
+    w,h = im1.size
+    im2 = im2.convert("RGB")
+    arr = []
+    for y in range(0,h-h%sw,sw):
+        for x in range(0,w-w%sw,sw):
+            x2 = x if x+sw <= w else x+w%sw
+            y2 = y if y+sw <= w else y+w%sw
+            r = im2.crop((x,y,x2,y2))
+            if r.tobytes() == im1.crop((x,y,x2,y2)).tobytes():
+                arr.append(r)
+            else:
+                arr.append(None)
+    return arr
+    
+#Transform im1 by arr and test to see if it matches im2.
+def test8x8Grid(im1,arr,im2,sw):
+    w,h = im1.size
+    imt = im1.copy()
+    im2 = im2.convert("RGB")
+    i = 0
+    for y in range(0,h-h%sw,sw):
+        for x in range(0,w-w%sw,sw):
+            if not arr[i]: continue
+            x2 = x if x+sw <= w else x+w%sw
+            y2 = y if y+sw <= w else y+w%sw
+            imt.paste(arr[i],(x,y,x2,y2))
+            i += 1
+    r = ImageChops.difference(imt,im2)
+    return (any(r.tobytes()),r)
+    
+def dumpGridData(arr,sw,internal_bpp):
+    parr,sarr,b,c = ([],[],0,0)
+    for i in arr:
+        c <<= 1
+        if i:
+            if i.mode != 'P': raise ValueError("Invalid mode for input grid image")
+            c |= 1
+            parr.append(imgToPackedData(i,internal_bpp))
+        b += 1
+        if not b%sw:
+            sarr.append(struct.pack("B",c))
+            c = 0
+    return ''.join([''.join(parr),''.join(sarr)])
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 # Conversion to palettized image without dithering, sourced from:
@@ -314,6 +359,9 @@ def quantizetopalette(silf, palette, dither=Image.NONE):
     im = silf.im.convert("P",dither , palette.im)
     try: return silf._new(im)
     except AttributeError: return silf._makeself(im)
+    
+#Shorter alias
+quant2pal = quantizetopalette
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 # Project-specific functions and classes
