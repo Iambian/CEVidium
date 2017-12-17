@@ -382,6 +382,73 @@ sfs_skip_partialframe:
 	POP AF
 	JP MF_SKIP_FRAME_DRAW
 sfs_skip_duplicateframe:
+	DJNZ sfs_skip_8x8boxes
+	PUSH BC
+		CALL copyPreviousFrame
+	POP BC
+	;render 8x8 box grid
+	;Screen width fixed at 96px, screen height in C
+	jr $
+	LD A,8
+	LD (sfs_blockheight_smc),A
+	LD A,C  ;SCREEN HEIGHT PRESERVD
+	SLA C
+	LD B,96*2  ;FIXED WIDTH
+	MLT BC  ;(h*2*w*2)/256 = (h*w)/64. Getting number of blocks to iterate over in B
+	LD C,A  ;KEEP SCREEN HEIGHT IN C
+	LD A,B
+	RRCA
+	RRCA
+	RRCA  ;DIV BY 8 TO GET NUMBITS
+	TST A,%11100000 
+	JR Z,_
+	INC A
+_:	AND %00011111  ;A IS NUMBER OF BYTES TO SKIP FORWARD, INCLUDING PARTIALLY UNUSED BYTE.
+	LD DE,0
+	LD E,A
+	LEA HL,IY+0
+	ADD IY,DE      ;SET IY TO START OF DATA STREAM, HL TO BITFIELD
+	LD E,0
+	;DE = [0,0] , HL = PTR TO BITFIELD, IY = DATA STREAM, B = LOOP COUNTER
+sfs_df_mainloop:
+	LD A,B
+	AND %00000111  ;IF ZERO, BIT-BYTE BOUNDS REACHED. INCREMENT HL
+	JR NZ,_
+	INC HL
+_:	RR (HL)
+	JR NC,sfs_df_preservebox
+	PUSH BC
+		PUSH DE
+			PUSH HL
+				EX DE,HL
+				LD E,8
+sfs_blockheight_smc .EQU $+1
+				LD C,8
+				CALL setDrawWindow
+				CALL drawFrame
+			POP HL
+		POP DE
+	POP BC
+sfs_df_preservebox:
+	LD A,E
+	ADD A,8
+	CP A,96  ;ASSUMED FRAME WIDTH
+	JR C,++_ ;IF NOT REACHED THE RIGHT EDGE OF THE SCREEN, SKIP TO WRITE X BACK
+	LD A,D   ;OTHERWISE, MOVE Y DOWNWARD AND ZERO OUT X
+	ADD A,8
+	LD D,A
+	LD A,C   ;ALSO DECREMENT SCREEN HEIGHT BY 8
+	SUB A,8  ;AND REDUCE BLOCKHEIGHT IF IT EVER FALLS BELOW 0
+	LD C,A   ;BY THE AMOUNT IT WOULD'VE BEEN HAD THE SUBTRACTION NOT TAKEN PLACE
+	JR NC,+_
+	ADD A,8
+	LD (sfs_blockheight_smc),A
+_:	XOR A
+_:	LD E,A
+	DJNZ sfs_df_mainloop
+	POP AF   ;REMOVES RETURN ADDRESS. SP LEVEL BACK TO MAIN.
+	JP MF_SKIP_FRAME_DRAW
+sfs_skip_8x8boxes:
 	;Out of bounds video data. Do not process. End video playback.
 	JR $ ;#@#@#@#@#@#@#@#@#@#@#@#@#@#@#@#
 	POP AF

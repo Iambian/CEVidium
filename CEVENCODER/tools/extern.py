@@ -305,12 +305,12 @@ def findDiff8x8Grid(im1,im2,sw):
     w,h = im1.size
     im2 = im2.convert("RGB")
     arr = []
-    for y in range(0,h-h%sw,sw):
+    for y in range(0,int(ceil(h*1.0/sw))*sw,sw):
         for x in range(0,w-w%sw,sw):
-            x2 = x if x+sw <= w else x+w%sw
-            y2 = y if y+sw <= w else y+w%sw
+            x2 = x+sw if x+sw <= w else w
+            y2 = y+sw if y+sw <= h else h
             r = im2.crop((x,y,x2,y2))
-            if r.tobytes() == im1.crop((x,y,x2,y2)).tobytes():
+            if r.tobytes() != im1.crop((x,y,x2,y2)).tobytes():
                 arr.append(r)
             else:
                 arr.append(None)
@@ -319,32 +319,46 @@ def findDiff8x8Grid(im1,im2,sw):
 #Transform im1 by arr and test to see if it matches im2.
 def test8x8Grid(im1,arr,im2,sw):
     w,h = im1.size
-    imt = im1.copy()
+    imt = im1.copy().convert("RGB")
     im2 = im2.convert("RGB")
     i = 0
-    for y in range(0,h-h%sw,sw):
+    for y in range(0,int(ceil(h*1.0/sw))*sw,sw):
         for x in range(0,w-w%sw,sw):
             if not arr[i]: continue
-            x2 = x if x+sw <= w else x+w%sw
-            y2 = y if y+sw <= w else y+w%sw
+            x2 = x+sw if x+sw <= w else w
+            y2 = y+sw if y+sw <= h else h
             imt.paste(arr[i],(x,y,x2,y2))
             i += 1
     r = ImageChops.difference(imt,im2)
     return (any(r.tobytes()),r)
     
+    
+# bits are read in decoder by right-shifting (little endian)
+# First byte is preshifted so loop counter can use TST 7
 def dumpGridData(arr,sw,internal_bpp):
-    parr,sarr,b,c = ([],[],0,0)
+    parr,sarr,leading,count,bitmask = ([],[],len(arr)%8,0,0)
     for i in arr:
-        c <<= 1
+        bitmask >>= 1
         if i:
             if i.mode != 'P': raise ValueError("Invalid mode for input grid image")
-            c |= 1
-            parr.append(imgToPackedData(i,internal_bpp))
-        b += 1
-        if not b%sw:
-            sarr.append(struct.pack("B",c))
-            c = 0
-    return ''.join([''.join(parr),''.join(sarr)])
+            bitmask |= 0x80
+            parr.extend(bytearray(imgToPackedData(i,internal_bpp)))
+        count += 1
+        if leading==count:
+            bitmask >>= abs(len(arr)%-8)
+            count += abs(len(arr)%-8)
+            sarr.append(bitmask)
+            continue
+        if not count%8: sarr.append(bitmask&0xFF)
+    s = str(bytearray(sarr)+bytearray(parr))
+    '''
+    print "\n"
+    print [len(sarr),len(parr),len(s)]
+    print ''.join([format(i,"02X") for i in sarr])
+    print ''.join([format(i,"02X") for i in parr])
+    sys.exit()
+    '''
+    return s
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 # Conversion to palettized image without dithering, sourced from:
