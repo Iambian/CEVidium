@@ -382,12 +382,13 @@ sfs_skip_partialframe:
 	POP AF
 	JP MF_SKIP_FRAME_DRAW
 sfs_skip_duplicateframe:
+	;DEC B \ JP NZ,sfs_skip_8x8boxes
 	DJNZ sfs_skip_8x8boxes
+	;render 8x8 box grid
+	;Screen width fixed at 96px, screen height in C
 	PUSH BC
 		CALL copyPreviousFrame
 	POP BC
-	;render 8x8 box grid
-	;Screen width fixed at 96px, screen height in C
 	;jr $
 	LD A,8
 	LD (sfs_blockheight_smc),A
@@ -414,8 +415,10 @@ _:	AND A,%00011111
 	LD E,A
 	LEA HL,IY+0
 	ADD IY,DE
-	jr $
 	LD E,D
+	LD A,C  ;ADJUST HEIGHT FOR LOOP
+	SUB A,8 ;
+	LD C,A  ;
 	;DE = [0,0] , HL = PTR TO BITFIELD, IY = DATA STREAM, B = LOOP COUNTER
 sfs_df_mainloop:
 	LD A,B

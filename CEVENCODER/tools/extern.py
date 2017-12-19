@@ -337,7 +337,7 @@ def test8x8Grid(im1,arr,im2,sw):
 # First byte is preshifted so loop counter can use TST 7
 # Destroys arr
 def dumpGridData(arr,sw,internal_bpp):
-    t,bitfield,datafield = ([],[],[])
+    t,bitfield,datafield,matches = ([],[],[],0)
     for i in range(len(arr)%8): t.append(arr.pop(0)) #Sets in array to be mult of 8, taking excess from arr start
     a = iter(arr)
     a = zip(a,a,a,a,a,a,a,a)  #Unflatten to list of 8-list
@@ -348,9 +348,13 @@ def dumpGridData(arr,sw,internal_bpp):
             bits = bits >> 1
             if j:
                 bits |= 0x80
-                datafield.extend(bytearray(imgToPackedData(j,internal_bpp)))
+                t = bytearray(imgToPackedData(j,internal_bpp))
+                if len(t) != 32 and len(t) != 24: raise ValueError("Bad conversion data: "+str(t))
+                datafield.extend(t)
+                matches += 1
         if len(i)%8 > 0: bits = bits >> abs(len(i)%(-8))
         bitfield.append(bits)
+    #bitfield.append(matches)
     s = str(bytearray(bitfield)+bytearray(datafield))
     '''
     print "\n"
