@@ -335,22 +335,23 @@ def test8x8Grid(im1,arr,im2,sw):
     
 # bits are read in decoder by right-shifting (little endian)
 # First byte is preshifted so loop counter can use TST 7
+# Destroys arr
 def dumpGridData(arr,sw,internal_bpp):
-    parr,sarr,leading,count,bitmask = ([],[],len(arr)%8,0,0)
-    for i in arr:
-        bitmask >>= 1
-        if i:
-            if i.mode != 'P': raise ValueError("Invalid mode for input grid image")
-            bitmask |= 0x80
-            parr.extend(bytearray(imgToPackedData(i,internal_bpp)))
-        count += 1
-        if leading==count:
-            bitmask >>= abs(len(arr)%-8)
-            count += abs(len(arr)%-8)
-            sarr.append(bitmask)
-            continue
-        if not count%8: sarr.append(bitmask&0xFF)
-    s = str(bytearray(sarr)+bytearray(parr))
+    t,bitfield,datafield = ([],[],[])
+    for i in range(len(arr)%8): t.append(arr.pop(0)) #Sets in array to be mult of 8, taking excess from arr start
+    a = iter(arr)
+    a = zip(a,a,a,a,a,a,a,a)  #Unflatten to list of 8-list
+    a = [t] + a  #Combines list with short lead
+    for i in a:
+        bits = 0
+        for j in i:
+            bits = bits >> 1
+            if j:
+                bits |= 0x80
+                datafield.extend(bytearray(imgToPackedData(j,internal_bpp)))
+        if len(i)%8 > 0: bits = bits >> abs(len(i)%(-8))
+        bitfield.append(bits)
+    s = str(bytearray(bitfield)+bytearray(datafield))
     '''
     print "\n"
     print [len(sarr),len(parr),len(s)]

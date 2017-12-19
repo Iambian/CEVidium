@@ -388,27 +388,34 @@ sfs_skip_duplicateframe:
 	POP BC
 	;render 8x8 box grid
 	;Screen width fixed at 96px, screen height in C
-	jr $
+	;jr $
 	LD A,8
 	LD (sfs_blockheight_smc),A
-	LD A,C  ;SCREEN HEIGHT PRESERVD
-	SLA C
-	LD B,96*2  ;FIXED WIDTH
-	MLT BC  ;(h*2*w*2)/256 = (h*w)/64. Getting number of blocks to iterate over in B
-	LD C,A  ;KEEP SCREEN HEIGHT IN C
-	LD A,B
+	LD H,C   ;SAVE ORIGINAL HEIGHT
+	LD A,C   ;GET COPY OF HEIGHT
+	TST A,%00000111 ;DO ceil(h/8)*8
+	JR Z,+_
+	ADD A,8
+_:  AND A,%11111000
+	ADD A,A   ;ADDITIONALLY DO h*2
+	LD C,A
+	LD B,96*2 ;DO w*2
+	MLT BC    ;(h*2)*(w*2)/256 == (h/8)*(w/8). Results in B to do the /256
+	LD C,H    ;RESTORE ORIGINAL HEIGHT IN C
+	LD A,B    ;LET r = (h/8)*(w/8). DO ceil(r/8) FOR BITS-TO-BYTE LOOP COUNT
 	RRCA
 	RRCA
-	RRCA  ;DIV BY 8 TO GET NUMBITS
-	TST A,%11100000 
-	JR Z,_
+	RRCA
+	TST A,%11100000
+	JR Z,+_
 	INC A
-_:	AND %00011111  ;A IS NUMBER OF BYTES TO SKIP FORWARD, INCLUDING PARTIALLY UNUSED BYTE.
+_:	AND A,%00011111
 	LD DE,0
 	LD E,A
 	LEA HL,IY+0
-	ADD IY,DE      ;SET IY TO START OF DATA STREAM, HL TO BITFIELD
-	LD E,0
+	ADD IY,DE
+	jr $
+	LD E,D
 	;DE = [0,0] , HL = PTR TO BITFIELD, IY = DATA STREAM, B = LOOP COUNTER
 sfs_df_mainloop:
 	LD A,B
