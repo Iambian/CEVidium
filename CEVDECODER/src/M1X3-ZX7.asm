@@ -481,11 +481,12 @@ sdw_smc_ymultiplier .EQU $+1
 		LD H,40
 		MLT HL
 		EX DE,HL
+		OR A
 sdw_smc_xdivider .EQU $
-		RRCA
-		RRCA
-		RRCA
-		AND %00011111
+		RRA
+		RRA
+		RRA
+		AND %00111111
 		LD L,A
 		LD H,3
 		MLT HL
