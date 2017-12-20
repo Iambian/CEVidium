@@ -22,11 +22,11 @@ def usage(err=2):
     print "Usage: python toolkit.py -i <in_video.name>"
     print "Additional options:"
     print "-e ENCODER  = Uses a particular encoder. ENCODER are as follows:"
-    print "              M1B1 = 96xN x3 scaled video, 1bpp black and white"
-    print "              M1G2 = 96xN x3 scaled video, 2bpp grayscale"
-    print "              M1G4 = 96xN x3 scaled video, 4bpp grayscale"
-    print "              M1C1 = 96xN x3 scaled video, 4bpp fixed color"
-    print "              M1A1 = 96xN x3 scaled video, 4bpp adaptive color"
+    print "              M1?? = 96xN x3 scaled video, where ?? determines the bitrate"
+    print "              M2?? = 120xN x2 scaled video, where ?? determines the bitrate"
+    print "              Bitrate codes as follows:"
+    print "                B1: 1bpp blk & white, G2: 2bpp grayscale, G4: 4bpp grayscale"
+    print "                C4: 4bpp fixed color, A4: 4bpp adaptive color"
     print "        -d  = Uses dithering. May increase filesize."
     print "        -f  = Force reconversion of video data"
     print ' -t "title" = Adds title information to the project'
@@ -97,7 +97,7 @@ for imgmainidx,f in enumerate(imglist):
     img.putdata(zip(i,i,i))
     imgdata = []
     # Process input image according to encoder
-    if settings.enco[:2] == "M1":
+    if settings.enco[:2] in ("M1","M2"):
         if settings.enco[2:] == "B1":
             bppdivider = 8.0
             internal_bpp = 1
@@ -144,16 +144,10 @@ for imgmainidx,f in enumerate(imglist):
                 timg = img.crop(tt)
                 previmg.paste(timg,tt)
                 if previmg.convert("RGB").tobytes() != img.convert("RGB").tobytes():
-                    dbg1,dbg2,s = (previmg.convert("RGB").tobytes(),img.convert("RGB").tobytes(),"")
-                    print "\nBlatant error dump\n"+str(len(dbg1))+"\n"+str(tt)+"\nDiscrepency list as follows:\n"
-                    #print ''.join(["["+format(k%img_width,"02")+","+format(k/img_width,"02")+"]:["+format(ord(i),"02X")+","+format(ord(j),"02X")+"] " for i,j,k in [(i,j,k) for i,j,k in zip(dbg1,dbg2,range(len(dbg1))) if i!=j]])
-                    #ImageChops.difference(previmg.convert("RGB"),img.convert("RGB")).show()
                     raise ValueError("Block image recomposition mismatch. This shouldn't happen.")
                 h  = "\x02"
-                h += struct.pack("B",t[0])
-                h += struct.pack("B",t[1])
-                h += struct.pack("B",t[2])
-                h += struct.pack("B",t[3])
+                h += struct.pack("B",t[0]) + struct.pack("B",t[1])
+                h += struct.pack("B",t[2]) + struct.pack("B",t[3])
                 imgdata = h + extern.imgToPackedData(extern.quant2pal(timg,palimg,dithering),internal_bpp)
                 previmg = img
             elif len(t) == 4 and (t[2]*t[3])>(len(u)/8+((len(u)-u.count(None))*8*8)):

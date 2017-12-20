@@ -16,8 +16,10 @@ for i in (TDIR,TIMGDIR,OUTDIR): ensuredir(i)
 try: Image.Image.tobytes()
 except AttributeError: Image.Image.tobytes = Image.Image.tostring
 except: pass
-ENCNAMES = { "M1" : "M1X3-ZX7", }
-ENCFPSEG = { "M1" : (30,15,10,10,10), }
+ENCNAMES = { "M1" : "M1X3-ZX7",
+             "M2" : "M1X2-ZX7", }
+ENCFPSEG = { "M1" : (30,15,10,10,10),
+             "M2" : (15, 8, 5, 5, 5), }
 
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 # Miscellaneous
@@ -349,7 +351,6 @@ def dumpGridData(arr,sw,internal_bpp):
             if j:
                 bits |= 0x80
                 t = bytearray(imgToPackedData(j,internal_bpp))
-                if len(t) != 32 and len(t) != 24: raise ValueError("Bad conversion data: "+str(t))
                 datafield.extend(t)
                 matches += 1
         if len(i)%8 > 0: bits = bits >> abs(len(i)%(-8))
@@ -436,6 +437,7 @@ class Config(object):
         def chk(self,v): return self.enco.startswith(v)
         if not (self.doffmpeg or force_reprocess): return
         if chk(self,'M1'): hres = 96 ; vres = -2 ; vflags = "neighbor"
+        if chk(self,'M2'): hres =128 ; vres = -2 ; vflags = "neighbor"
         else: raise ValueError("Illegal encoder value was passed. Cannot encode video")
         
         o1,o2,oi = (np(TDIR+'/t1.mp4'), np(TDIR+'/t2.mp4'), np(TIMGDIR+'/i%05d.png'))

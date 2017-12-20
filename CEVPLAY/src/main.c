@@ -45,6 +45,8 @@ uint8_t* decoder_start_address;
 uint8_t bitdepthsize = 7;
 char *bitdepthcode[] = {"1bpp","2bpp","4bpp gs","4bpp color","4bpp adaptive","8bpp xlibc","8bpp adaptive"};
 
+
+
 uint8_t grays[] = {0x00,0x6B,0xB5,0xFF};
 
 struct {
