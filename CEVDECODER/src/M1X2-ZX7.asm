@@ -15,7 +15,7 @@
 #DEFINE SROW_CMD $2B	;Y-AXIS (144px high, start 48, end 192-1)
 #DEFINE LCD_WIDTH 320
 #DEFINE LCD_HEIGHT 240
-#DEFINE VIDEO_WIDTH 128
+#DEFINE VIDEO_WIDTH 136
 
 #DEFINE VSEG_ARR 3
 #DEFINE VSTRUCT  6
@@ -85,7 +85,7 @@ MF_START:
 			LD A,(IX+V_HEIGHT) \ LD (IY+F_HEIGHT),A
 			LD E,A \ LD D,2 \ MLT DE \ LD HL,LCD_HEIGHT ; (MAXHEIGHT-VIDHEIGHT)/2 = DIST
 			OR A \ SBC HL,DE \ SRL H \ RR  L            ; BTWN SCREEN-TOP AND VID-TOP
-			EX DE,HL
+			EX DE,HL                                    ; Y OFFSET IN DE
 		POP HL
 		INC HL \ INC HL \ INC HL \ LD HL,(HL)  ;GET ADR FOR VOFFSET + LUT SETUP
 		LD IX,FF_END
@@ -94,7 +94,9 @@ MF_START:
 			JP (HL)
 _:		;SET UP DECODER GRID
 		LD A,(IY+F_HEIGHT)
-		LD (sfs_8x8_vidheight),A
+		
+		LD (sfs_8x8_vidheight),A  ;IN THE GRID ARRAY CODE. REMOVE THE ADD/SUB
+		
 		TST A,%00000111 ;CHECK TO SEE IF h%8 IS NONZERO
 		JR Z,+_
 		ADD A,8         ;IF NOT, ceil() IT
@@ -122,6 +124,7 @@ MF_LOAD_NEXT_SEGMENT:
 		LD DE,DECOMP_BUFFER
 		PUSH DE
 			CALL _dzx7_Turbo  ;also located in MAIN_FIELD
+			CALL waitOneFrame
 			LEA HL,IY+M_FRAMES ;-25 MFR
 			EX (SP),IY
 			LD A,(HL)
@@ -384,7 +387,7 @@ sfs_skip_eov:
 	DJNZ sfs_skip_rawvideo
 	;raw video
 	LD HL,(256*0)+0
-	LD DE,96
+	LD DE,VIDEO_WIDTH
 	JP setDrawWindow
 sfs_skip_rawvideo:
 	DJNZ sfs_skip_partialframe
@@ -406,7 +409,7 @@ sfs_skip_duplicateframe:
 	;DEC B \ JP NZ,sfs_skip_8x8boxes
 	DJNZ sfs_skip_8x8boxes
 	;render 8x8 box grid
-	;Screen width fixed at 96px, screen height in C
+	;Screen width fixed at VIDEO_WIDTH, screen height in C
 	CALL copyPreviousFrame
 sfs_8x8_vidoffset .EQU $+1
 	LD DE,0  ;LOWEST BYTE ALWAYS WRITTEN, NO OTHERS ARE
@@ -418,6 +421,8 @@ sfs_8x8_vidloop .EQU $+1
 sfs_8x8_vidheight .EQU $+1
 	LD C,0
 	;DE = [0,0] , HL = PTR TO BITFIELD, IY = DATA STREAM, B = LOOP COUNTER
+	;jr $
+	JP +_          ;SKIP OVER INITIAL LOOP TEST IN CASE B%8 WAS ZERO TO START WITH
 sfs_df_mainloop:
 	LD A,B
 	AND %00000111  ;IF ZERO, BIT-BYTE BOUNDS REACHED. INCREMENT HL
@@ -440,7 +445,7 @@ sfs_blockheight_smc .EQU $+1
 sfs_df_preservebox:
 	LD A,E
 	ADD A,8
-	CP A,96  ;ASSUMED FRAME WIDTH
+	CP A,VIDEO_WIDTH
 	JR C,++_ ;IF NOT REACHED THE RIGHT EDGE OF THE SCREEN, SKIP TO WRITE X BACK
 	LD A,D   ;OTHERWISE, MOVE Y DOWNWARD AND ZERO OUT X
 	ADD A,8
@@ -499,15 +504,13 @@ sdw_smc_screenofset .EQU $+2
 	LD A,E     ;Get img width
 	SBC HL,HL  
 	EX DE,HL   ;Zero out HL
-	;Set frame render loop parameters
-sdw_smc_wdivider .EQU $+0
+sdw_smc_wdivider .EQU $+0   ;Set frame render loop parameters
 	RRA \ RRA \ RRA ;div 8 for 1bpp. RRA RRA NOP for div 4 (2bpp), RRA NOP NOP for div 2 (4bpp)
 	AND %00111111
 	LD (df_smc_hdraw),A
 	LD E,A     ;Set adjusted width in E.
 	ADD A,A    ;
-	ADD A,E    ;x3 to scale.
-	LD E,A
+	LD E,A     ;x2 to scale.
 sdw_smc_nextrow .EQU $+1
 	LD HL,0
 	SBC HL,DE
@@ -661,7 +664,7 @@ drawFrame:
 df_verticaldraw:
 ;	jr $
 df_smc_hdraw .EQU $+1
-	LD B,48
+	LD B,VIDEO_WIDTH/2
 	LD A,C
 	LD DE,FF_END
 df_horizontaldraw:

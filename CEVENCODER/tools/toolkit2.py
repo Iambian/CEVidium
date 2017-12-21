@@ -126,10 +126,13 @@ for imgmainidx,f in enumerate(imglist):
             
         else: ValueError("Invalid subcode passed")
         nimg = extern.quant2pal(img,palimg,dithering)
+        i = iter( [ord(b)&~7 for b in nimg.convert("RGB").tobytes()] )
+        cimg = Image.new("RGB",(img_width,img_height))
+        cimg.putdata(zip(i,i,i))
         app.updateframe(nimg)
         if previmg:
-            t = extern.findDiffRect(previmg,img,bppdivider)
-            u = extern.findDiff8x8Grid(previmg,img,8)  #search in 8x8 blocks
+            t = extern.findDiffRect(previmg,cimg,bppdivider)
+            u = extern.findDiff8x8Grid(previmg,cimg,8)  #search in 8x8 blocks
             if t and len(t)>3: tt= (t[0],t[1],t[0]+t[2],t[1]+t[3])
             if t==(None,):
                 sys.stdout.write("Cycle "+str(imgmainidx)+", perfect match\r")
@@ -137,33 +140,34 @@ for imgmainidx,f in enumerate(imglist):
             elif t==None:
                 sys.stdout.write("Cycle "+str(imgmainidx)+", complete mismatch\r")
                 imgdata = "\x01" + extern.imgToPackedData(nimg,internal_bpp)
-                previmg = img
-            elif len(t) == 4 and ((t[2]*t[3])<=(len(u)/8+((len(u)-u.count(None))*8*8)) or not any(u)):
+                previmg = cimg
+            elif len(t) == 4: # and ((t[2]*t[3])<=(len(u)/8+((len(u)-u.count(None))*8*8)) or not any(u)):
                 pct = floor((t[2]*t[3]*1.0)/(img_width*img_height)*100)
                 sys.stdout.write("Cycle "+str(imgmainidx)+", partial blck mismatch, "+str(pct)+"% difference\r")
-                timg = img.crop(tt)
+                timg = cimg.crop(tt)
                 previmg.paste(timg,tt)
-                if previmg.convert("RGB").tobytes() != img.convert("RGB").tobytes():
+                if previmg.tobytes() != cimg.tobytes():
                     raise ValueError("Block image recomposition mismatch. This shouldn't happen.")
                 h  = "\x02"
                 h += struct.pack("B",t[0]) + struct.pack("B",t[1])
                 h += struct.pack("B",t[2]) + struct.pack("B",t[3])
                 imgdata = h + extern.imgToPackedData(extern.quant2pal(timg,palimg,dithering),internal_bpp)
-                previmg = img
-            elif len(t) == 4 and (t[2]*t[3])>(len(u)/8+((len(u)-u.count(None))*8*8)):
+                previmg = cimg
+            elif False: # len(t) == 4 and (t[2]*t[3])>(len(u)/8+((len(u)-u.count(None))*8*8)):
                 pct = floor((len(u)-u.count(None)*1.0)/(len(u)*1.0)*100)
                 sys.stdout.write("Cycle "+str(imgmainidx)+", partial grid mismatch, "+str(pct)+"% difference\r")
-                res = extern.test8x8Grid(previmg,u,img,8)
+                res = extern.test8x8Grid(previmg,u,cimg,8)
                 if not res[0]:
                     raise ValueError("Grid image recomposition mismatch. This shouldn't happen.")
                 for i in range(len(u)):
                     if u[i]: u[i] = extern.quantizetopalette(u[i],palimg,dithering)
                 imgdata = '\x04'+extern.dumpGridData(u,8,internal_bpp)
+                previmg = cimg
             else:
                 ValueError("Invalid value returned from matcher")
         else:
             imgdata = "\x01" + extern.imgToPackedData(nimg,internal_bpp)
-            previmg = img
+            previmg = cimg
 
     else:
         raise ValueError("Illegal encoder value was passed.")

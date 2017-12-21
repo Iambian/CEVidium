@@ -19,7 +19,7 @@ except: pass
 ENCNAMES = { "M1" : "M1X3-ZX7",
              "M2" : "M1X2-ZX7", }
 ENCFPSEG = { "M1" : (30,15,10,10,10),
-             "M2" : (15, 8, 5, 5, 5), }
+             "M2" : (20,10, 5, 5, 5), }
 
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 # Miscellaneous
@@ -343,7 +343,7 @@ def dumpGridData(arr,sw,internal_bpp):
     for i in range(len(arr)%8): t.append(arr.pop(0)) #Sets in array to be mult of 8, taking excess from arr start
     a = iter(arr)
     a = zip(a,a,a,a,a,a,a,a)  #Unflatten to list of 8-list
-    a = [t] + a  #Combines list with short lead
+    if t != []: a = [t] + a  #Combines list with short lead
     for i in a:
         bits = 0
         for j in i:
@@ -359,9 +359,9 @@ def dumpGridData(arr,sw,internal_bpp):
     s = str(bytearray(bitfield)+bytearray(datafield))
     '''
     print "\n"
-    print [len(sarr),len(parr),len(s)]
-    print ''.join([format(i,"02X") for i in sarr])
-    print ''.join([format(i,"02X") for i in parr])
+    print [len(bitfield),len(datafield),len(s)]
+    print ''.join([format(i,"02X") for i in bitfield])
+    print ''.join([format(i,"02X") for i in datafield])
     sys.exit()
     '''
     return s
@@ -437,7 +437,7 @@ class Config(object):
         def chk(self,v): return self.enco.startswith(v)
         if not (self.doffmpeg or force_reprocess): return
         if chk(self,'M1'): hres = 96 ; vres = -2 ; vflags = "neighbor"
-        if chk(self,'M2'): hres =128 ; vres = -2 ; vflags = "neighbor"
+        elif chk(self,'M2'): hres =136 ; vres = -2 ; vflags = "neighbor"
         else: raise ValueError("Illegal encoder value was passed. Cannot encode video")
         
         o1,o2,oi = (np(TDIR+'/t1.mp4'), np(TDIR+'/t2.mp4'), np(TIMGDIR+'/i%05d.png'))
@@ -445,7 +445,7 @@ class Config(object):
             print "Converting video to target dimensions"
             FFmpeg(
                 inputs  = { self.vname: '-y'},
-                outputs = { o1: '-vf scale='+str(hres)+':'+str(vres)+':flags='+str(vflags)+' -an'},
+                outputs = { o1: '-c:v libx264 -profile:v baseline -preset medium -vf scale='+str(hres)+':'+str(vres)+':flags='+str(vflags)+' -an'},
             ).run()
             print "Outputting individual frames to .png files"
             FFmpeg(
