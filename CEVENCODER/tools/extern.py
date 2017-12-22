@@ -437,7 +437,7 @@ class Config(object):
         def chk(self,v): return self.enco.startswith(v)
         if not (self.doffmpeg or force_reprocess): return
         if chk(self,'M1'): hres = 96 ; vres = -2 ; vflags = "neighbor"
-        elif chk(self,'M2'): hres =136 ; vres = -2 ; vflags = "neighbor"
+        elif chk(self,'M2'): hres =144 ; vres = -2 ; vflags = "neighbor"
         else: raise ValueError("Illegal encoder value was passed. Cannot encode video")
         
         o1,o2,oi = (np(TDIR+'/t1.mp4'), np(TDIR+'/t2.mp4'), np(TIMGDIR+'/i%05d.png'))

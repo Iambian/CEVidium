@@ -92,10 +92,10 @@ void main(void) {
 			centerxtext(video.title,30);
 			centerxtext(video.author,40);
 			
-			gfx_PrintStringXY("Frame height: ",5,60);
-			gfx_PrintUInt(video.h,3);
-			gfx_PrintString(", width: ");
+			gfx_PrintStringXY("Frame width: ",5,60);
 			gfx_PrintUInt(video.w,3);
+			gfx_PrintString(", height: ");
+			gfx_PrintUInt(video.h,3);
 			
 			gfx_PrintStringXY("Frames per segment: ",5,70);
 			gfx_PrintUInt(video.segframes,3);

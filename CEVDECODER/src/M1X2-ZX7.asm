@@ -15,7 +15,7 @@
 #DEFINE SROW_CMD $2B	;Y-AXIS (144px high, start 48, end 192-1)
 #DEFINE LCD_WIDTH 320
 #DEFINE LCD_HEIGHT 240
-#DEFINE VIDEO_WIDTH 136
+#DEFINE VIDEO_WIDTH 144
 
 #DEFINE VSEG_ARR 3
 #DEFINE VSTRUCT  6
@@ -94,10 +94,14 @@ MF_START:
 			JP (HL)
 _:		;SET UP DECODER GRID
 		LD A,(IY+F_HEIGHT)
-		
+		TST A,%00000111
+		JR Z,+_
+		SUB A,8
 		LD (sfs_8x8_vidheight),A  ;IN THE GRID ARRAY CODE. REMOVE THE ADD/SUB
-		
-		TST A,%00000111 ;CHECK TO SEE IF h%8 IS NONZERO
+		ADD A,8
+		JR ++_
+_:		LD (sfs_8x8_vidheight),A  ;IN THE GRID ARRAY CODE. REMOVE THE ADD/SUB
+_:		TST A,%00000111 ;CHECK TO SEE IF h%8 IS NONZERO
 		JR Z,+_
 		ADD A,8         ;IF NOT, ceil() IT
 _:		AND A,%11111000
@@ -187,6 +191,7 @@ _:		RLCA \ ADC HL,HL \ RRCA
 		LD A,40       \ LD (sdw_smc_ymultiplier),A
 		LD HL,$1F1F1F \ LD (sdw_smc_wdivider),HL \ LD (sdw_smc_xdivider),HL
 		LD HL,NXRW1B  \ LD (sdw_smc_nextrow),HL
+		LD A, %00111111 \ LD (sdw_smc_xmaskout),A \ LD (sdw_smc_wmaskout),A
 		LD DE,ofsAndLUTSetup1bpp_renderer
 		;--------------------
 		JP ofsAndLUTSetup_collect
@@ -212,6 +217,7 @@ _:		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RRCA \ RRCA
 		LD A,80       \ LD (sdw_smc_ymultiplier),A
 		LD HL,$1F1F00 \ LD (sdw_smc_wdivider),HL \ LD (sdw_smc_xdivider),HL
 		LD HL,NXRW2B  \ LD (sdw_smc_nextrow),HL
+		LD A, %00111111 \ LD (sdw_smc_xmaskout),A \ LD (sdw_smc_wmaskout),A
 		LD DE,ofsAndLUTSetup2bpp_renderer
 		;--------------------
 		JR ofsAndLUTSetup_collect
@@ -237,6 +243,7 @@ _:		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ 
 		LD A,160      \ LD (sdw_smc_ymultiplier),A
 		LD HL,$1F0000 \ LD (sdw_smc_wdivider),HL \ LD (sdw_smc_xdivider),HL
 		LD HL,NXRW4B  \ LD (sdw_smc_nextrow),HL
+		LD A, %01111111 \ LD (sdw_smc_xmaskout),A \ LD (sdw_smc_wmaskout),A
 		;--------------------
 		LD DE,ofsAndLUTSetup4bpp_renderer
 ofsAndLUTSetup_collect:
@@ -416,13 +423,15 @@ sfs_8x8_vidoffset .EQU $+1
 	LEA HL,IY+0
 	ADD IY,DE
 	LD E,D
+	LD A,8
+	LD (sfs_blockheight_smc),A
 sfs_8x8_vidloop .EQU $+1
 	LD B,0
 sfs_8x8_vidheight .EQU $+1
 	LD C,0
 	;DE = [0,0] , HL = PTR TO BITFIELD, IY = DATA STREAM, B = LOOP COUNTER
 	;jr $
-	JP +_          ;SKIP OVER INITIAL LOOP TEST IN CASE B%8 WAS ZERO TO START WITH
+	JR +_          ;SKIP OVER INITIAL LOOP TEST IN CASE B%8 WAS ZERO TO START WITH
 sfs_df_mainloop:
 	LD A,B
 	AND %00000111  ;IF ZERO, BIT-BYTE BOUNDS REACHED. INCREMENT HL
@@ -489,6 +498,7 @@ sdw_smc_xdivider .EQU $
 		RRA
 		RRA
 		RRA
+sdw_smc_xmaskout  .EQU $+1
 		AND %00111111
 		LD L,A
 		LD H,2
@@ -506,6 +516,7 @@ sdw_smc_screenofset .EQU $+2
 	EX DE,HL   ;Zero out HL
 sdw_smc_wdivider .EQU $+0   ;Set frame render loop parameters
 	RRA \ RRA \ RRA ;div 8 for 1bpp. RRA RRA NOP for div 4 (2bpp), RRA NOP NOP for div 2 (4bpp)
+sdw_smc_wmaskout  .EQU $+1
 	AND %00111111
 	LD (df_smc_hdraw),A
 	LD E,A     ;Set adjusted width in E.
