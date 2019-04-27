@@ -214,6 +214,7 @@ void playvideo(char *vn) {
 	}
 	
 	printline("Running video decoder...");
+	keywait();  //Prevent video decoder from receiving any unwanted keystrokes
 	runDecoder(vptr_array, (uint8_t*) &video);
 
 
