@@ -1,5 +1,8 @@
 /CEVPLAY/bin
 /CEVPLAY/obj
+/CEVPLAY/src/gfx/*.c
+/CEVPLAY/src/gfx/*.h
+/CEVPLAY/src/gfx/*.log
 /CEVENCODER/bin
 /CEVENCODER/obj
 /CEVENCODER/*.mp4
