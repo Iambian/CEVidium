@@ -141,7 +141,7 @@ for imgmainidx,f in enumerate(imglist):
                 sys.stdout.write("Cycle "+str(imgmainidx)+", complete mismatch\r")
                 imgdata = "\x01" + extern.imgToPackedData(nimg,internal_bpp)
                 previmg = cimg
-            elif len(t) == 4 and ((t[2]*t[3])<=(len(u)/8+((len(u)-u.count(None))*8*8)) or not any(u)):
+            elif len(t) == 4 and ((t[2]*t[3])<=(len(u)/8+((len(u)-sum(x is not None for x in u))*8*8)) or not any(u)):
                 pct = floor((t[2]*t[3]*1.0)/(img_width*img_height)*100)
                 sys.stdout.write("Cycle "+str(imgmainidx)+", partial blck mismatch, "+str(pct)+"% difference\r")
                 timg = cimg.crop(tt)
@@ -153,8 +153,8 @@ for imgmainidx,f in enumerate(imglist):
                 h += struct.pack("B",t[2]) + struct.pack("B",t[3])
                 imgdata = h + extern.imgToPackedData(extern.quant2pal(timg,palimg,dithering),internal_bpp)
                 previmg = cimg
-            elif len(t) == 4 and (t[2]*t[3])>(len(u)/8+((len(u)-u.count(None))*8*8)):
-                pct = floor((len(u)-u.count(None)*1.0)/(len(u)*1.0)*100)
+            elif len(t) == 4 and (t[2]*t[3])>(len(u)/8+((len(u)-sum(x is not None for x in u))*8*8)):
+                pct = floor((len(u)-sum(x is not None for x in u)*1.0)/(len(u)*1.0)*100)
                 sys.stdout.write("Cycle "+str(imgmainidx)+", partial grid mismatch, "+str(pct)+"% difference\r")
                 res = extern.test8x8Grid(previmg,u,cimg,8)
                 if not res[0]:
