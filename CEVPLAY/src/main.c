@@ -7,7 +7,13 @@
  *--------------------------------------
 */
 
-#define VERSION_INFO "v0.1"
+#define VERSION_INFO "v0.2"
+#define LARGEST_SPRITE_SIZE 6000
+#define COLOR_SKYBLUE 0xBF
+#define COLOR_DARKBLUE 25
+#define COLOR_BLACK 0
+#define COLOR_WHITE 255
+
 
 /* Keep these headers */
 #include <stdbool.h>
@@ -28,6 +34,8 @@
 #include <decompress.h>
 #include <fileioc.h>
 
+#include "gfx/sprites_gfx.h"
+
 /* Put your function prototypes here */
 void playvideo(char *vn);
 void centerxtext(char* strobj,int y);
@@ -37,11 +45,18 @@ void printline(char *s);
 void printerr(char *s);
 void get_video_metadata(char *main_file_name);
 char *getnextvideo();
+void dispsprite(void *compsprite,int x,int y);
+void titlebar(void *compsprite, int x1, int y1, int x2, int y2);
+void rect(int x1, int y1, int x2, int y2);
 
 /* Put all your globals here */
 uint8_t texty;
 char codecname[] = {0,0,0,0,0,0,0,0,0};  //9 bytes, always alias to video.codec
 uint8_t* decoder_start_address;
+uint8_t bitdepthsize = 7;
+char *bitdepthcode[] = {"1bpp","2bpp","4bpp G","4bpp C","4bpp A","8bpp X","8bpp A"};
+uint8_t *commondata; //Make it large enough to decompress largest sprite object
+
 
 uint8_t grays[] = {0x00,0x6B,0xB5,0xFF};
 
@@ -53,6 +68,7 @@ struct {
 	int w;
 	int h;
 	int segframes;
+	int bitdepth;
 } video;
 
 void main(void) {
@@ -61,10 +77,15 @@ void main(void) {
 	uint8_t *search_pos = NULL;
 	uint8_t* fileptr;
 	char *varname;
+	int timevar;
+	int framerate;
+	
 	
 	gfx_Begin(gfx_8bpp);
 	gfx_SetDrawBuffer();
 	ti_CloseAll();
+	
+	commondata = malloc(LARGEST_SPRITE_SIZE); 
 
 	//Generate list here.
 	varname = getnextvideo();
@@ -77,36 +98,77 @@ void main(void) {
 			k = kb_Data[7];
 			if (k) { if (!getnextvideo()) break;}
 			keywait();
-			gfx_FillScreen(0xBF);
-			gfx_SetTextScale(2,2);
-			centerxtext("video thingie. rawrf.",5);
+			/* Render interface */
+			framerate = 30;
+			//Background, title, and main box
+			gfx_FillScreen(COLOR_SKYBLUE);
+			dispsprite(logo_compressed,64,12);
+			gfx_SetColor(COLOR_DARKBLUE);
+			rect(4,64,315,132);
+			//Black bar (fill) boxes and borders
+			titlebar(videoname_compressed,5,65,314,69);
+			titlebar(videoauthor_compressed,5,82,314,86);
+			titlebar(filename_compressed,5,99,70,103);
+			titlebar(decodername_compressed,72,99,137,103);
+			titlebar(videodimensions_compressed,139,99,196,103);
+			titlebar(videolength_compressed,198,99,255,103);
+			titlebar(bitdepth_compressed,257,99,314,103);
+			titlebar(reserved_compressed,5,116,314,120);
+			//Fill in other divider lines
+			gfx_SetColor(COLOR_DARKBLUE);
+			gfx_VertLine_NoClip(71,105,10);  //between filename and decodername
+			gfx_VertLine_NoClip(138,105,10); //between decodername and videodimensions
+			gfx_VertLine_NoClip(197,105,10); //between videodimensions and videolength
+			gfx_VertLine_NoClip(256,105,10); //between videolength and bitdepth
+			//Fill in text for title and author
 			gfx_SetTextScale(1,1);
+			texty = 80;
+			centerxtext(video.title,72);
+			centerxtext(video.author,89);
+			//Print filename
+			gfx_SetTextXY(6,106);
+			gfx_PrintString(varname);
 			
-			texty = 50;
-			
-			centerxtext(video.title,30);
-			centerxtext(video.author,40);
-			
-			gfx_PrintStringXY("Frame height: ",5,60);
-			gfx_PrintUInt(video.h,3);
-			gfx_PrintString(", width: ");
+			//Fill in video dimensions text and sprite object
+			gfx_SetTextXY(140,106);
 			gfx_PrintUInt(video.w,3);
+			dispsprite(x_compressed,164,108);
+			gfx_SetTextXY(171,106);
+			gfx_PrintUInt(video.h,3);
+			//Fill in video time
+			dispsprite(colon_compressed,216,107);
+			dispsprite(colon_compressed,236,107);
+			timevar = video.segframes * video.segments;
 			
+			gfx_SetTextXY(239,106);  //SECONDS
+			gfx_PrintUInt((int)(timevar/framerate)%60,2);
+			gfx_SetTextXY(219,106);  //MINUTES
+			gfx_PrintUInt((int)(timevar/(60*framerate))%60,2);
+			gfx_SetTextXY(199,106);  //HOURS
+			gfx_PrintUInt((int)(timevar/(60*60*framerate)),2);
+			/*
 			gfx_PrintStringXY("Frames per segment: ",5,70);
 			gfx_PrintUInt(video.segframes,3);
-			
 			gfx_PrintStringXY("Segments total: ",5,80);
 			gfx_PrintUInt(video.segments,5);
-			
-			gfx_PrintStringXY("Decoder: ",5,90);
+			*/
+			//Fill in decoder
+			gfx_SetTextXY(73,106);
 			gfx_PrintString(video.codec);
 			
+			//Fill in bit depth
+			gfx_SetTextXY(258,106);
+			if (video.bitdepth>(bitdepthsize-1)) gfx_PrintString("N/A");
+			else gfx_PrintString(bitdepthcode[video.bitdepth]);
+			
+			//Print version information at the bottom right corner of screen
 			gfx_SetTextXY(290,230);
 			gfx_PrintString(VERSION_INFO);
 			gfx_SwapDraw();
 		}
 	}
 	gfx_End();
+	free(commondata);
 }
 
 void playvideo(char *vn) {
@@ -125,7 +187,7 @@ void playvideo(char *vn) {
 	get_video_metadata(vn);   //re-retrieve metadata from file
 	memcpy(vidname,vn,10);    //create local copy of vn
 	
-	texty = 120;
+	texty = 150;
 	printline("Loading video...");
 	
 	if (!(vptr_array = malloc((video.segments)*sizeof(uint8_t*)))) {
@@ -205,6 +267,7 @@ void playvideo(char *vn) {
 	}
 	
 	printline("Running video decoder...");
+	keywait();  //Prevent video decoder from receiving any unwanted keystrokes
 	runDecoder(vptr_array, (uint8_t*) &video);
 
 
@@ -294,9 +357,15 @@ void playvideo(char *vn) {
 }
 
 
-
+char *nonestring = "[N/A]";
 void centerxtext(char* strobj,int y) {
-	gfx_PrintStringXY(strobj,(LCD_WIDTH-gfx_GetStringWidth(strobj))/2,y);
+	int w;
+	w = gfx_GetStringWidth(strobj);
+	if (!w) {
+		strobj = nonestring;
+		w = gfx_GetStringWidth(strobj);
+	}
+	gfx_PrintStringXY(strobj,(LCD_WIDTH-w)/2,y);
 }
 
 void keywait() {
@@ -328,6 +397,8 @@ void printerr(char *s) {
 void get_video_metadata(char *main_file_name) {
 	ti_var_t tmpslot;
 	
+	memset(&video,0,sizeof video);
+	
 	video.codec = codecname;
 	if (tmpslot = ti_Open(main_file_name,"r"))
 	{
@@ -342,11 +413,9 @@ void get_video_metadata(char *main_file_name) {
 		ti_Read(&video.w,2,1,tmpslot);         //Get frame width
 		ti_Read(&video.h,2,1,tmpslot);         //Get frame height
 		ti_Read(&video.segframes,1,1,tmpslot); //Get number of frames per segment
+		ti_Read(&video.bitdepth,1,1,tmpslot);  //Get video bit depth
 	} else {
-		memset(video.codec,0,9);
-		video.title = "";
-		video.author = "";
-		video.segments = video.segframes = video.w = video.h = 0;
+		video.title = video.author = video.codec = "";
 	}
 	ti_Close(tmpslot);
 	return;
@@ -365,4 +434,18 @@ char *getnextvideo() {
 	return variable_name;
 }
 
+void dispsprite(void *compsprite,int x,int y) {
+	dzx7_Turbo(compsprite,commondata);
+	gfx_Sprite_NoClip((gfx_sprite_t*)commondata,x,y);
+}
 
+void titlebar(void *compsprite,int x1, int y1, int x2, int y2) {
+	gfx_SetColor(COLOR_BLACK);
+	gfx_FillRectangle_NoClip(x1,y1,x2-x1+1,y2-y1+1);
+	gfx_SetColor(COLOR_DARKBLUE);
+	rect(x1-1,y1-1,x2+1,y2+1);
+	dispsprite(compsprite,x1,y1);
+}
+void rect(int x1, int y1, int x2, int y2) {
+	gfx_Rectangle_NoClip(x1,y1,x2-x1+1,y2-y1+1);
+}

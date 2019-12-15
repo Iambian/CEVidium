@@ -1,9 +1,13 @@
 print "Loading libraries"
-from PIL import Image,ImageTk,ImagePalette
+from PIL import Image,ImageTk,ImagePalette,ImageChops
+import Tkinter as tk
 from ffmpy import FFmpeg
 from itertools import chain
-import Tkinter as tk
-import sys,os,ctypes,subprocess,getopt,shutil,struct,time,colorsys
+from itertools import izip_longest
+from collections import OrderedDict
+from math import ceil,floor
+import sys,os,ctypes,subprocess,getopt,shutil,struct,time,colorsys,copy
+
 
 np  = os.path.normpath
 cwd = os.getcwd()
@@ -12,6 +16,8 @@ TEMP_DIR     = np(cwd+"/obj/")
 TEMP_PNG_DIR = np(cwd+"/obj/png")
 OUTPUT_DIR   = np(cwd+"/bin")
 STATUS_FILE  = np(TEMP_DIR+'/curstate')
+
+BIT_DEPTH = 0xFF
 
 def GETIMGPATH(fname): return np(TEMP_PNG_DIR+"/"+fname)
 def GETIMGNAMES():
@@ -34,12 +40,21 @@ ensure_dir(OUTPUT_DIR)
 ensure_dir(TEMP_DIR+'/tin')
 ensure_dir(TEMP_DIR+'/tout')
 
+try:
+    Image.Image.tobytes()
+except AttributeError:
+    Image.Image.tobytes = Image.Image.tostring
+except:
+    pass
+
+
 ENCODER_NAMES = {   1: "1B3X-ZX7",
                     2: "2B3X-ZX7",
                     3: "2B1X-ZX7",
                     4: "1B1X-ZX7",
                     5: "4C3X-ZX7",
                     6: "4A3X-ZX7",
+                    7: "4B3X-ZX7",
 }
 FPSEG_BY_ENCODER = {    1:30,
                         2:15,
@@ -47,6 +62,7 @@ FPSEG_BY_ENCODER = {    1:30,
                         4:10,
                         5:15,
                         6:10,
+                        7:15,
 }
 
 
@@ -67,43 +83,30 @@ def writeFile(fn,a):
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 # Export data to appvar
-TI_VAR_PROG_TYPE = 0x05
-TI_VAR_PROTPROG_TYPE = 0x06
-TI_VAR_APPVAR_TYPE = 0x15
-TI_VAR_FLAG_RAM = 0x00
-TI_VAR_FLAG_ARCHIVED = 0x80
+TI_VAR_PROG_TYPE, TI_VAR_PROTPROG_TYPE, TI_VAR_APPVAR_TYPE = (0x05,0x06,0x15)
+TI_VAR_FLAG_RAM, TI_VAR_FLAG_ARCHIVED = (0x00,0x80)
 
-def export8xv(filepath,filename,filedata):
+#fpath: Path to output file; fname: file's base name (no extension);
+#fdata: bytearray-compatible iterable containing just the file's data section
+def export8xv(fpath,fname,fdata):
     # Ensure that filedata is a string
-    if isinstance(filedata,list): filedata = str(bytearray(filedata))
+    fdata = str(bytearray(fdata))
     # Add size bytes to file data as per (PROT)PROG/APPVAR data structure
-    dsl = len(filedata)&0xFF
-    dsh = (len(filedata)>>8)&0xFF
-    filedata = str(bytearray([dsl,dsh]))+filedata
+    fdata = struct.pack('<H',len(fdata)) + fdata
     # Construct variable header
-    vsl = len(filedata)&0xFF
-    vsh = (len(filedata)>>8)&0xFF
-    vh  = str(bytearray([0x0D,0x00,vsl,vsh,TI_VAR_APPVAR_TYPE]))
-    vh += filename.ljust(8,'\x00')[:8]
-    vh += str(bytearray([0x00,TI_VAR_FLAG_ARCHIVED,vsl,vsh]))
-    # Pull together variable metadata for TI8X file header
-    varentry = vh + filedata
-    varsizel = len(varentry)&0xFF
-    varsizeh = (len(varentry)>>8)&0xFF
-    varchksum = sum([ord(i) for i in varentry])
-    vchkl = varchksum&0xFF
-    vchkh = (varchksum>>8)&0xFF
-    # Construct TI8X file header
-    h  = "**TI83F*"
-    h += str(bytearray([0x1A,0x0A,0x00]))
-    h += "Rawr. Gravy. Steaks. Cherries!".ljust(42)[:42]  #Always makes comments exactly 42 chars wide.
-    h += str(bytearray([varsizel,varsizeh]))
-    h += varentry
-    h += str(bytearray([vchkl,vchkh]))
-    # Write data out to file
-    writeFile(np(filepath+"/"+filename+".8xv"),h)
-    return
-
+    vheader  = "\x0D\x00" + struct.pack("<H",len(fdata)) + chr(TI_VAR_APPVAR_TYPE)
+    vheader += fname.ljust(8,'\x00')[:8]
+    vheader += "\x00" + chr(TI_VAR_FLAG_ARCHIVED) + struct.pack("<H",len(fdata))
+    variable = vheader + fdata
+    # Construct header, add file data, then add footer
+    output  = "**TI83F*\x1A\x0A\x00"
+    output += "Cherries! Steaks! Gravy! Rawr!".ljust(42)[:42]
+    output += struct.pack('<H',len(variable)) + variable
+    output += struct.pack('<H',sum(ord(i) for i in variable)&0xFFFF)
+    # Output result to file
+    writeFile(np(fpath+"/"+fname+".8xv"),output)
+    
+    
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 # Video window class
 
@@ -188,7 +191,8 @@ class Framebuf():
                 self.addframe(framedata)
     
     def flushtofile(self,output_filename,output_encoding):
-        global ENCODER_NAMES,OUTPUT_DIR
+        global ENCODER_NAMES,OUTPUT_DIR,BIT_DEPTH
+        if self.frame_buffer: self.addframe(None)
         outfilename = str(os.path.splitext(os.path.basename(output_filename))[0])
         video_decoder = ENCODER_NAMES[int(output_encoding)]
         self.cmpr_arr = sorted(self.cmpr_arr,key=lambda i:i.size,reverse=True)
@@ -232,39 +236,94 @@ class Framebuf():
         mfiledata += struct.pack("<H",self.vid_w)
         mfiledata += struct.pack("<H",self.vid_h)
         mfiledata += struct.pack("B",self.frames_per_segment)
+        mfiledata += struct.pack("B",BIT_DEPTH)
         export8xv(OUTPUT_DIR,outfilename,mfiledata)
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-# Image filtering
+# Image filtering and processing
 
 def gethsv(t):
     r,g,b = (i/255.0 for i in t)
     return colorsys.rgb_to_hsv(r,g,b)
 
-def rgbpaltolist(s):
+def paltolist(s,prvpal=None):
     o = []
     for i in range(0,15*3,3):
         r = ord(s[i+0])&~0x7
         g = ord(s[i+1])&~0x7
         b = ord(s[i+2])&~0x7
         o.append((r,g,b))
-    o = list(set(o))      #remove duplicates
-    o.sort()
-#    if (0,0,0) not in o: o.insert(0,(0,0,0))  #black must always be in the palette
-#    o.insert(0,o.pop(o.index((0,0,0))))       #black is always at the front
-    if len(o)<256:
+    o = list(OrderedDict.fromkeys(o[:16]))    #removes dupes, preserves order
+    if (0,0,0) not in o: o.insert(0,(0,0,0))  #black must always be in the palette
+    o.insert(0,o.pop(o.index((0,0,0))))       #black is always at the front
+    # If prvpal is passed in, sort new list by best possible match wrt prvpal
+    if prvpal:
+        oldvals = list(OrderedDict.fromkeys(prvpal[:16])) #removes duplicates, preserves order
+        newvals = o[:]
+        n = []
+        #match up all possible oldvals with newvals and leave blanks for nonmatch
+        for i in oldvals:
+            if i in newvals: n.append(newvals.pop(newvals.index(i)))
+            else: n.append(None)
+        for i in newvals:
+            if None in n: n[n.index(None)] = i
+            else: n.append(i)
+        for i in range(len(n)):
+            if n[i] == None: n[i] = (0,0,0)
+        if n[0] != (0,0,0): ValueError("Well, shit.")
+        o = n
+    if len(o)<16:
+        o += [(0,0,0)]*(16-len(o))
+        o = o * 16
+    elif len(o)<64:
+        o += [(0,0,0)]*(64-len(o))
+        o = o * 4
+    elif len(o)<128:
+        o += [(0,0,0)]*(128-len(o))
+        o = o * 2
+    else:
         o += [(0,0,0)]*(256-len(o))
 #    if o[0] != (0,0,0):
 #        raise ValueError("First val of out array is not (0,0,0) despite best efforts")
     return o
 
-
+# Compares two images to detect the subframe in which both images are different.
+# The left and right side are adjusted by dividing it by "hdiv" to account for
+# different bpp that the images will be converted and packed into.
+# Can return one of the following:
+# 4-tuple (subFrameX, subFrameY, subFrameW, subFrameH) indicating subframe bounds
+# 1-tuple (None,) indicating that the two frames are identical
+# NoneType object None indicating that the entire frame was different
+def findDiffRect(im1,im2,hdiv,w,h):
+    def fedge(d,wa,ha,w):
+        def scx(d,wa,ha,w):
+            for x in wa:
+                for y in ha:
+                    if d[y*w+x]: return x
+        def scy(d,wa,ha,w):
+            for y in ha:
+                for x in wa:
+                    if d[y*w+x]: return y
+        return (scx(d,wa,ha,w),scy(d,wa,ha,w))
+    if im1.mode != "RGB": raise ValueError("Image mode must be RGB. Gave: "+im1.mode)
+    d = ImageChops.difference(im1,im2).tobytes()
+    d = tuple(ord(d[i])+ord(d[i+1])*256+ord(d[i+2])*65536 for i in range(0,len(d),3))
+    if not any(d): return (None,)
+    wa,ha = (range(w),range(h))
+    l,t = fedge(d,wa,ha,w)   #find left and top edges
+    wa.reverse()
+    ha.reverse()
+    r,b = fedge(d,wa,ha,w)   #find right and bottom edges
+    l,r = (int(floor(l/hdiv)*hdiv),int(ceil((r+1)/hdiv)*hdiv-1))  #adjust bounds
+    if (l,r,t,b) == (0,w-1,0,h-1): return None
+    return [l,t,r+1-l,b+1-t]
+    
 
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 # Conversion to palettized image without dithering, sourced from:
 # https://stackoverflow.com/questions/29433243/convert-image-to-specific-palette-using-pil-without-dithering
 
-def quantizetopalette(silf, palette, dither=False):
+def quantizetopalette(silf, palette, dither=Image.NONE):
     silf.load()
     palette.load()
     if palette.mode != "P":
@@ -273,7 +332,7 @@ def quantizetopalette(silf, palette, dither=False):
         raise ValueError(
             "only RGB or L mode images can be quantized to a palette"
             )
-    im = silf.im.convert("P", 1 if dither else 0, palette.im)
+    im = silf.im.convert("P",dither , palette.im)
     try:
         return silf._new(im)
     except AttributeError:
@@ -287,11 +346,12 @@ def usage():
     print "Additional options:"
     print "-e ENCODER  = Uses a particular encoder. ENCODER are as follows:"
     print "              1 = 1bpp b/w, 3x scaling from 96 by X"
-    print "              2 = 2bpp b/dg/lg/w, 3x scaling from 96 by X"
+    print "              2 = 2bpp grayscale, 3x scaling from 96 by X"
     print "              3 = (decoder not supported)"
     print "              4 = 1bpp b/w, no scaling from 176 by X"
-    print "              5 = 4bpp 16 color, 3x scaling from 96 by X"
-    print "              6 = 4bpp adaptive palette, 3x scaling from 96 by X"
+    print "              5 = 4bpp color, 3x scaling from 96 by X"
+    print "              6 = 4bpp adaptive color, 3x scaling from 96 by X"
+    print "              7 = 4bpp grayscale palette, 3x scaling from 96 by X"
     print "        -d  = Uses dithering. May increase filesize."
     print "        -f  = Force reconversion of video data"
     print ' -t "title" = Adds title information to the project'
@@ -396,6 +456,9 @@ if doffmpeg:
     elif vid_encoder == '6':
         hres = 96
         vres = -2
+    elif vid_encoder == '7':
+        hres = 96
+        vres = -2
     else:
         print "Illegal encoder value was used. Cannot encode video."
         sys.exit(2)
@@ -407,7 +470,7 @@ if doffmpeg:
         print "Converting video to target dimensions"
         FFmpeg(
             inputs  = { invidname: '-y'},
-            outputs = { of1: '-vf scale='+str(hres)+':'+str(vres)+':flags=neighbor'},
+            outputs = { of1: '-vf scale='+str(hres)+':'+str(vres)+':flags=neighbor -an'},
         ).run()
         print "Outputting individual frames to .png files"
         FFmpeg(
@@ -431,6 +494,7 @@ with open(STATUS_FILE,"w") as f:
 print "Collecting image data..."
 
 img_width,img_height = (0,0)
+print str(os.listdir(OUTPUT_DIR))
 fl = [f for f in os.listdir(OUTPUT_DIR) if os.path.isfile(np(OUTPUT_DIR+'/'+f)) and f[:5]==invidname[:5]]
 for i in fl: os.remove(np(OUTPUT_DIR+'/'+i))
 
@@ -454,6 +518,18 @@ newimgobj = Image.new("P",(img_width,img_height))
 #app.update_idletasks()
 #app.update()
 
+#construct 4bpp grayscale palette outside the encoder loop
+pal1bpp_bw = [(0,0,0),(255,255,255)]*128
+pal2bpp_gs = [(i,i,i) for i in [0,85,170,255]]*64
+pal2bpp_gs = [(i+(i<<4),i+(i<<4),i+(i<<4)) in range(16)]*16
+
+
+gspal4bpp = []
+for i in range(16): gspal4bpp.extend([i<4,i<<4,i<<4])
+previmg = None
+prevpal = None
+prevpaldat = None
+imagedata = None
 
 for f in flist:
     print f
@@ -485,8 +561,8 @@ for f in flist:
         imgdata = img.convert('1',None,dithering).tostring() # Changed from .tobytes() to be compatible with the latest PIL version
     elif vid_encoder == '5':
         palette = [0,0,0, 128,0,0, 0,128,0, 0,0,128,
-                   128,128,0, 0,128,128, 128,0,128, 128,128,128,
-                   128,128,128, 255,0,0, 0,255,0, 0,0,255,
+                   128,128,0, 0,128,128, 128,0,128,  85, 85, 85,
+                   170,170,170, 255,0,0, 0,255,0, 0,0,255,
                    255,255,0, 0,255,255, 255,0,255, 255,255,255]
         palimg.putpalette(palette*16)
         timg = quantizetopalette(img,palimg,dithering)
@@ -498,9 +574,79 @@ for f in flist:
                 t += (ord(timgdat[(i*2)+j])&15)<<(4*j)
             imgdata.append(t)
     elif vid_encoder == '6':
-        timg = img.convert("P",palette=Image.ADAPTIVE,colors=15)
-        p = rgbpaltolist(timg.palette.getdata()[1])
-        palimg.putpalette(list(chain.from_iterable(p)))
+        matcharr = None
+        if previmg:
+            matcharr = findDiffRect(previmg,img,2.0,img_width,img_height)
+        timg = img.convert("P",palette=Image.ADAPTIVE,colors=15,dither=dithering)
+        p = paltolist(timg.palette.getdata()[1])
+        if matcharr == None:
+            print "No match"
+            palettebin = ''
+            for i in range(1,16):
+                r,g,b = ((p[i][0]>>3)&0x1F,(p[i][1]>>3)&0x1F,(p[i][2]>>3)&0x1F)
+                t = ((r<<10)+(g<<5)+b)&0x7FFF
+                palettebin += struct.pack("<H",t)
+            palimg.putpalette(chain.from_iterable(p))
+            timg = quantizetopalette(img,palimg,dithering)
+            timgdat = str(bytearray(timg.tobytes()))
+            for i in range(len(timgdat)/2):
+                t = 0
+                for j in range(2):
+                    t += (ord(timgdat[(i*2)+j])&15)<<(4*j)
+                imgdata.append(t)
+            imgdata = bytearray(palettebin) + bytearray(imgdata)
+            previmg = img  #_.putdata(img.tobytes())
+            prevpal = p
+            prevpaldat = palettebin
+        elif matcharr==(None,):
+            print "Perfect match found"
+            imgdata = bytearray(struct.pack("<H",(1<<15)+(1<<14)))
+        else:
+            pn = paltolist(timg.palette.getdata()[1],prevpal)
+            dp = 0
+            pm = 0
+            palettebin = ""
+            for prv,cur,i in zip(prevpal,pn,range(0,16)):  #zip longest, None-pad
+                if not i: continue
+                dp >>= 1
+                if prv==cur or cur==(0,0,0):
+                    pass  #do nothing. A zero bit was already shifted downstream.
+                else:
+                    dp += 0x8000
+                    pm += 1
+                    r,g,b = ((cur[0]>>3)&0x1F,(cur[1]>>3)&0x1F,(cur[2]>>3)&0x1F)
+                    t = ((r<<10)+(g<<5)+b)&0x7FFF
+                    palettebin += struct.pack("<H",t)
+            dp >>= 1
+            palettebin  = struct.pack("<H",dp) + palettebin
+            print "Partial match detected: "+str(matcharr)+", matching pal: "+str(pm)+", data "+format(dp,"04X")
+            crx,cry,crw,crh = matcharr
+            nimg = Image.new("RGB",(img_width,img_height))
+            nimg.paste(previmg)
+            nimg.paste(img.crop((crx,cry,crx+crw,cry+crh)),(crx,cry))
+            t1 = nimg.tobytes()
+            t2 = img.tobytes()
+            if t1 != t2:
+                raise ValueError("Image mismatch during reconstruction")
+            palimg.putpalette(chain.from_iterable(pn))
+            timg = quantizetopalette(img,palimg,dithering)
+            timgdat = timg.crop((crx,cry,crx+crw,cry+crh)).tobytes()
+            for i in range(len(timgdat)/2):
+                t = 0
+                for j in range(2):
+                    t += (ord(timgdat[(i*2)+j])&15)<<(4*j)
+                imgdata.append(t)
+            incdat  = struct.pack("<H",(1<<15) + crx)
+            incdat += struct.pack("B",crw)
+            incdat += struct.pack("B",cry)
+            incdat += struct.pack("B",crh)
+            incdat += palettebin
+            imgdata = bytearray(incdat) + bytearray(imgdata)
+            previmg = nimg
+            prevpal = pn
+            
+    elif vid_encoder == '7':
+        palimg.putpalette(gspal4bpp*16)
         timg = quantizetopalette(img,palimg,dithering)
         palettebin = ''
         for i in range(0,15):
@@ -515,13 +661,15 @@ for f in flist:
             for j in range(2):
                 t += (ord(timgdat[(i*2)+j])&15)<<(4*j)
             imgdata.append(t)
-        imgdata = bytearray(palettebin) + bytearray(imgdata)
     else:
         print "Illegal encoder value passed ("+vid_encoder+"). Cannot convert video."
         sys.exit(2)
     fb.addframe(imgdata)
-    
-fb.framecap(imgdata)  #makes sure that video capped with same last image
+
+if vid_encoder == '6':
+    d = (1<<15)+(1<<14)+(1<<13)
+    print "sent frame data"+str(d)
+    fb.addframe(struct.pack("<H",d)+"DEADBEEF") #EOF marker
 fb.flushtofile(invidname,vid_encoder)
     
     

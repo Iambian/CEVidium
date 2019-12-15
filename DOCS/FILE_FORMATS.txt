@@ -29,5 +29,67 @@
 	dw SIZE_OF_FIELD_DATA_SECTION
 	ds FIELD_DATA_SECTION
 
+;ADAPTIVE FRAME FORMAT:
+* I-frames are sent as fifteen RGB entries each channel 5 bits wide,
+  followed by a bitmap of the frame of maximum size.
+	.dw 0<<15 + R<<10 + G<<5 + B<<0
+	.ds framedata
+* Frames that include a single subframe difference are as follows:
+	.dw BoxX + 1<<15 + 0<<14 + 0<<13 + 0<<12 + 0<<11 + 0<<10 + 0<9
+	.db BoxW
+	.db BoxY
+	.db BoxH
+	.dw DeltaPaletteBitmap    ; - 16 bits, bit 0 corresponds to first entry
+	.ds DeltaPaletteBitfield  ; - Palette entries that have changed from prior frame
+	.ds framedata
+* Frame that indicates that the previous frame was identical
+	.dw 0 + 1<<15 + 1<<14 + 0<<13 + 0<<12 + 0<<11 + 0<<10 + 0<9
+* End of file marker:
+	.dw 0 + 1<<15 + 1<<14 + 1<<13 + 0<<12 + 0<<11 + 0<<10 + 0<9
+
+;M1X3-ZX7 FRAME FORMAT
+* All frames have a leading TYPE byte.
+  Data following TYPE is acted upon depending on what TYPE is.
+  
+* TYPE 0x00 : End of Video
+	;No data, stop video playback
+* TYPE 0x01 : Raw Video Data
+	.ds ENTIRE_UNCOMPRESSED_FRAME
+* TYPE 0x02 : Partial Frame
+	.db Xpos,Ypox,Width,Height
+* TYPE 0x03 : Duplicate Frame
+	;No data - the previous frame will be copied to current frame verbatim.
+* TYPE 0x04 : 8x8 Grid Frame
+	.ds ACTIVE_BITFIELD ;Bits and bytes little-endian. Size: (w/8*ceil(h/8))
+	.ds 8x8 squares     ;8px by 8px squares, size adjusted to input bitrate (ex. 1bpp = 8 bytes, 4bpp = 32 bytes)
+
+* Immediately after all frame data is a delta palette entry if the video palette
+  is adaptive. PALETTE_BITMAP is a 16-bit bitfield whose lowest bit corresponds
+  to field 0 in the hardware palette and highest bit corresponds to field 15 in
+  the hardware palette. For every '1' bit encounted in PALETTE_BITMAP, two bytes
+  of color information will be present in the stream to overwrite the
+  corresponding hardware palette entry.
+  If the frame is not adapative, either because the entire video is not adaptive,
+  or the frame TYPE does not carry frame data,
+  PALETTE_BITMAP will be 0x0000 and no color information follows.
+  .dw PALETTE_BITMAP                  ;bitmap
+    .dw 0<<15 + R<<10 + G<<5 + B<<0   ;Occurs as many times
+	[...]                             ;as there are set bits
+    .dw 0<<15 + R<<10 + G<<5 + B<<0   ;in the PALETTE_BITMAP
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

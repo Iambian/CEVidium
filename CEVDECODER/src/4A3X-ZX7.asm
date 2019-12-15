@@ -5,12 +5,12 @@
 .DB "4A3X-ZX7",0  ;4bpp adaptive palette 3x scale zx7 decoder
 .ORG 16
 .DB 2
-;NOTE: VRAM STARTS AT $D30000
+;NOTE: VRAM STARTS AT $D40000
 #DEFINE BUFFER1 $D40000  ;GIVE IT 16KB to store 9600 bytes
 #DEFINE BUFFER2 $D49600  ;ANOTHER 16KB 
 
 #DEFINE INITIAL_FIELD_LOCATION $D52C00   ;MAIN FIELD LOCATION
-#DEFINE MAIN_FIELD_LOCATION $D53100      ;CHANGE LATER TO $E30800 IF SMALL ENOUGH.
+#DEFINE MAIN_FIELD_LOCATION $D53800      ;CHANGE LATER TO $E30800 IF SMALL ENOUGH.
 #DEFINE DECOMPRESSION_BUFFER $D54000     ;THIS BUFFER IS *JUST* LARGE ENOUGH
 
 #DEFINE ONE_SECOND 32768
@@ -20,6 +20,7 @@
 ;KEEP VARIABLES IN THE SLACK OF THE STACK, POINTED TO BY IY
 #DEFINE SEGMENT_ARRAY 3
 #DEFINE VIDEO_STRUCT 6
+#DEFINE START_SEG_PTR -27
 #DEFINE CUR_SEG_PTR  -30
 #DEFINE END_SEG_PTR  -33
 #DEFINE OLD_BUFFER -39
@@ -44,7 +45,7 @@ INITIAL_FIELD_START:
 		LD HL,BUFFER1
 		LD DE,BUFFER1+1
 		LD BC,$012BFF
-		LD (HL),$FF
+		LD (HL),0
 		LDIR
 		;SET UP LCD CONTROLLER
 		;Note: It's possible you may need to deal with LCDTiming0 and LCDTiming1
@@ -60,7 +61,7 @@ INITIAL_FIELD_START:
 		;SET 2,(IX+$19)           SET BIG-ENDIAN PIXEL ORDER
 		OR A
 		SBC HL,HL
-		LD ($E30200+(15*2)),HL  ;LAST PALETTE ENTRY TO ZERO (BLACK)
+		LD ($E30200),HL  ;FIRST PALETTE ENTRY TO ZERO (BLACK)
 		;GET ADDRESS FOR VIDEO STRUCT
 		LD IX,(IY+VIDEO_STRUCT)  ;GET STRUCT
 		;COPY RELEVENT INFORMATION FROM STRUCT TO STACK SLACK
@@ -69,6 +70,7 @@ INITIAL_FIELD_START:
 		LD DE,(IX+9)
 		LD HL,(IY+SEGMENT_ARRAY)
 		LD (IY+CUR_SEG_PTR),HL
+		LD (IY+START_SEG_PTR),HL
 		ADD HL,DE
 		ADD HL,DE
 		ADD HL,DE
@@ -89,15 +91,7 @@ INITIAL_FIELD_START:
 		ADD HL,DE  ;FULL OFFSET
 		LD (IY+SCREEN_ADR_OFFSET),HL
 		;SET UP TIMER HARDWARE - UNSETS POINTER TO STRUCT
-		LD IX,$F20000
-		XOR A
-		LD (IX+$30),A  ;DISABLE TIMERS
-		LEA DE,IX
-		LD HL,TIMER_VALUES
-		LD BC,TIMER_VALUES_END-TIMER_VALUES
-		LDIR           ;LOAD COUNTER AND RESET REGISTERS TO TIMER_VALUES
-		LD HL,%000000000000000000000011
-		LD (IX+$30),HL ;TIMER CTRL REG ENABLE, SET XTAL TIMER 1, COUNT DOWN, NO INTR
+		CALL resetTimer
 		;SET UP MAIN LOOP LOOKUP TABLE
 		LD IX,MAIN_FIELD_END  ;START SETTING UP LUT
 		XOR A
@@ -110,6 +104,7 @@ _:		rlca \ adc hl,hl \ rlca \ adc hl,hl \ rlca \ adc hl,hl \ rlca \ adc hl,hl \ 
 		LEA IX,IX+3
 		INC A
 		JR NZ,--_
+
 		;SYSTEM SET UP. START THE DECODER.
 		;------------------------------------------------------------
 		LD HL,(IY+SCREEN_ADR_OFFSET)
@@ -136,6 +131,7 @@ INIFIELD_LOAD_NEXT_SEGMENT:
 		OR A
 		SBC HL,DE
 		JP NC,INIFIELD_LOAD_NEXT_SEGMENT
+INIFIELD_STOP_PLAYBACK:
 		;------------------------------------------------------------
 		;PUTAWAY - RESET TIMERS AND LCD HARDWARE.
 		XOR A
@@ -169,13 +165,212 @@ _:	BIT 7,(HL)
 	LD (HL),3
 	RET	
 
+getKbd:
+	PUSH HL
+		LD	HL,$F50200	;DI_MODE=$F5XX00
+		LD	(HL),H
+		XOR	A,A
+_:		CP	A,(HL)
+		JR	NZ,-_
+		LD	L,$12  ;GROUP 1 (top keys)
+		LD	A,(HL)
+		LD	L,$1E  ;GROUP 7 (dpad)
+		XOR	(HL)
+		AND	%11110000
+		XOR (HL)   ;b0:dwn b1:lft b2:rig b3:up b4:yeq b5:2nd b6:mod b7:del
+	POP HL
+	RET
+
+resetTimer:
+	LD IX,$F20000
+	XOR A
+	LD (IX+$30),A  ;DISABLE TIMERS
+	LEA DE,IX
+	LD HL,TIMER_VALUES
+	LD BC,TIMER_VALUES_END-TIMER_VALUES
+	LDIR           ;LOAD COUNTER AND RESET REGISTERS TO TIMER_VALUES
+	LD HL,%000000000000000000000011
+	LD (IX+$30),HL ;TIMER CTRL REG ENABLE, SET XTAL TIMER 1, COUNT DOWN, NO INTR
+	RET
+
+
+waitAnyKey:
+	CALL keyWait
+_:	CALL getKbd
+	OR	A
+	JR Z,-_
+keyWait:
+	CALL getKbd
+	OR 	A
+	JR	NZ,keyWait
+	RET
+
+	
+doControls:
+_:	CALL getKbd
+	BIT 5,A
+	JR	Z,_doctrls_skipPause
+	CALL waitAnyKey
+	JR	-_
+_doctrls_skipPause:
+	BIT	6,A
+	JR	Z,_doctrls_skipStop
+	POP AF
+	POP	AF
+	POP	IY
+	CALL keyWait
+	JP INIFIELD_STOP_PLAYBACK
+_doctrls_skipStop:
+	BIT	1,A
+	JR	Z,_doctrls_skipRewind
+	LD	HL,-3
+	JR _doctrls_changepos
+_doctrls_skipRewind:
+	BIT	2,A
+	JR	Z,_doctrls_skipFastFwd
+	LD	HL,3
+_doctrls_changepos:
+	POP	AF  ;rem doctrls to drawsegment
+	POP IX  ;rem drawsegment to main
+	POP IY  ;get saved stack pointer position
+	LD	DE,(IY+CUR_SEG_PTR)
+	ADD	HL,DE
+	EX	DE,HL
+	LD	HL,(IY+START_SEG_PTR)
+	OR	A
+	SBC HL,DE  ;STARTSEG-NEWSEG. IF ZERO, CONTINUE. THEN IF NC, SKIP WRITEBACK
+	JR	Z,+_
+	JR	NC,_doctrls_donotchangepos
+_:	LD	HL,(IY+END_SEG_PTR)
+	OR	A
+	DEC HL
+	DEC HL
+	DEC HL
+	SBC HL,DE  ;ENDSEG-NEWSEG. IF C, WENT PAST END: SKIP WRITEBACK
+	JP	C,INIFIELD_STOP_PLAYBACK
+	LD	(IY+CUR_SEG_PTR),DE
+	CALL resetTimer
+_doctrls_donotchangepos:
+	JP	INIFIELD_LOAD_NEXT_SEGMENT	
+_doctrls_skipFastFwd:
+	RET
+	
+writeDeltaPalette: ;IY handled. IY must point to start of data field.
+	LD B,15
+	LD HL,$E30202
+	LD DE,(IY+0)
+	LEA IY,IY+2
+_:	SRL D
+	RR  E
+	JR NC,+_
+	LD A,(IY+0)
+	LD (HL),A
+	INC HL
+	LD A,(IY+1)
+	LD (HL),A
+	DEC HL
+	LEA IY,IY+2
+_:	INC HL
+	INC HL
+	DJNZ --_
+	RET
+	
+swapDraw:
+	LD HL,$E30010
+	LD IX,(HL)
+	INC HL
+	LD A,(HL)
+	XOR $96
+	LD (HL),A  ;FANCY BUFFER FLIPPING
+	RET
+	
+setupFrameState:
+	BIT 7,(IY+1)  ;IF SET, THIS IS NOT A DIRECT FRAME COPY
+	JR NZ,_sfs_control_packet
+	CALL swapDraw
+	CALL waitOneFrame
+	LD A,C
+	LD DE,$E30202  ;V
+	LEA HL,IY+0    ;V
+	LD BC,30       ;V
+	ADD IY,BC      ;V
+	LDIR           ;COPY PALETTE DATA TO HARDWARE PALETTE
+	LD C,A
+	LD A,48
+	LD (MAIN_FIELD_WRITE_FRAME+1),A
+	LD HL,160+160+16
+	LD (MFADLP),HL
+_sfs_set_frame_offset:
+MFWOFST .EQU $+1
+	LD DE,0
+	ADD IX,DE
+	RET
+_sfs_control_packet:
+	BIT 6,(IY+1)  ;IF SET, THIS FRAME IS SAME AS PRIOR FRAME. DO NOTHING ELSE.
+	JR NZ,_sfs_identical_copy
+	CALL swapDraw
+	CALL waitOneFrame
+	
+	LD HL,$E30010  ;COPY PREVIOUS FRAME
+	LD DE,(HL)
+	LD HL,(HL)
+	LD A,H
+	XOR $96
+	LD H,A
+	LD A,C
+	LD BC,38400
+	EX DE,HL
+	LDIR
+	LD C,A
+	
+	LD E,(IY+0)  ;XPOS
+	SRL E        ;DIV 2
+	LD D,3
+	MLT DE       ;CONV TO 4bpp screenpos
+	ADD IX,DE    ;MOVE OFFSET TO THE LEFT
+	LD A,(IY+2)   ;WIDTH
+	RRA           ;DIV BY 2, cheap and no carry-in
+	LD (MAIN_FIELD_WRITE_FRAME+1),A
+	LD B,A
+	ADD A,A
+	ADD A,B  ;MULT 3
+	CPL
+	ADD A,160+1
+	LD E,A
+	LD HL,320
+	ADD HL,DE
+	LD (MFADLP),HL
+	LD A,(IY+3)   ;HEIGHT
+	LD D,A
+	ADD A,A
+	ADD A,D
+	LD E,A        ;FACTOR 3
+	LD D,160      ;SCREEN WIDTH
+	MLT DE
+	ADD IX,DE     ;OFFSET DOWN
+	LD C,(IY+4)
+	LEA IY,IY+5
+	CALL writeDeltaPalette
+	JR _sfs_set_frame_offset
+_sfs_identical_copy:
+	BIT 5,(IY+1)
+	JR NZ,_sfs_eof_marker
+	LEA IY,IY+2
+	CALL waitOneFrame
+	POP AF        ;REMOVE RETURN ADDRESS
+	JP MAIN_FIELD_SKIP_FRAME
+_sfs_eof_marker:
+	POP AF   ;REMOVE RETURN PTR
+	POP AF   ;REMOVE HL
+	POP AF   ;REMOVE RETURN PTR
+	POP IY   ;REMOVE IY
+	JP INIFIELD_STOP_PLAYBACK
 	
 	
 TIMER_VALUES: ;30fps = 32768/30 ~~ 1092.2
 .db $45,$04,$80,$00  ;Initial value: 1093+INT_MAX+1 to take advantage of sign flag.
 .db $01,$00,$00,$00  ;reset value. Hang on 1.
 TIMER_VALUES_END:
-
 
 	
 INITIAL_FIELD_END:
@@ -190,33 +385,10 @@ DRAW_SEGMENT:
 	DEC HL     ;-78 FRH
 	LD C,(HL)  ;READ FRAME_HEIGHT
 	PUSH HL
-		LD HL,$E30010
-		LD IX,(HL)
-		INC HL
-		LD A,(HL)
-		XOR $96
-		LD (HL),A  ;FANCY BUFFER FLIPPING
-		; LD HL,$E30010
-		; LD L,$28
-		; SET 2,(HL)
-		; LD L,$20
-; _:		BIT 2,(HL)
-		; JR Z,-_
-		CALL waitOneFrame			
-		PUSH BC
-			LD DE,$E30200
-			LEA HL,IY+0
-			LD BC,30
-			ADD IY,BC
-			LDIR
-;			LEA IY,IY+30
-		POP BC
-MFWOFST .EQU $+1
-		LD DE,0
-		ADD IX,DE
-		LD DE,MAIN_FIELD_END
+		CALL setupFrameState  ;Checks frame data and sets up renderer state
 MAIN_FIELD_WRITE_FRAME:
 		LD B,48
+		LD DE,MAIN_FIELD_END
 MAIN_FIELD_WRITE_LINE:
 		LD L,(IY+0)
 		LD H,3
@@ -230,19 +402,20 @@ MAIN_FIELD_WRITE_LINE:
 		LD (IX+126),HL
 		LEA IX,IX-34+3
 		INC IY
-;		LEA IX,IX+3
 		DJNZ MAIN_FIELD_WRITE_LINE
-		;16 to next line, 160+160 for next set to write. 336 total. brkdn: 122,122,92
-		LEA IX,IX+122
-		LEA IX,IX+122
-		LEA IX,IX+92
+MFADLP .EQU $+1
+		LD DE,160+160+16
+		ADD IX,DE
 		DEC C
 		JR NZ,MAIN_FIELD_WRITE_FRAME
+MAIN_FIELD_SKIP_FRAME:
 	POP HL
 	INC HL    ;-77 CFR
+	CALL doControls
 	DEC (HL)
 	JR NZ,DRAW_SEGMENT
 	RET
+	
 	
 ; ===============================================================
 ; Dec 2012 by Einar Saukas & Urusergi
@@ -325,6 +498,7 @@ MAIN_FIELD_END:
 
 
 ;END OF FILE
+.ECHO "Assembling decoder 4A3X-ZX7"
 .ECHO "Initial field size: ",INITIAL_FIELD_END-INITIAL_FIELD_START,"\n","Main field size: ",MAIN_FIELD_END-MAIN_FIELD_START,"\n"
 .END
 .END
