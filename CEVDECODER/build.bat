@@ -1,4 +1,5 @@
 @echo off
+if not exist bin\ mkdir bin
 :START
 echo ###############################################################################
 if not exist bin\ mkdir bin
