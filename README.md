@@ -35,8 +35,9 @@ Building and Sending the Video Player
 -------------------------------------
 1. If you have not installed the CE programming toolchain, download and install
    from: https://github.com/CE-Programming/toolchain/releases
-2. Open a command prompt in the CEVPLAY folder and type 'make' to build the
-   video player.
+2. Open a command prompt in the CEVPLAY folder and type the following in order:
+   * `make gfx`
+   * `make`
 3. If everything worked, copy CEVPLAY/bin/CEVIDIUM.8xp to your calculator.
 
 Building and Sending the Decoders

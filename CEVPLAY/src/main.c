@@ -31,7 +31,8 @@
 #include <debug.h>
 #include <keypadc.h>
 #include <graphx.h>
-#include <decompress.h>
+//#include <decompress.h>
+#include <compression.h>
 #include <fileioc.h>
 
 #include "gfx/sprites_gfx.h"
