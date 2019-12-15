@@ -24,6 +24,7 @@ def GETIMGNAMES():
     global TEMP_PNG_DIR
     return sorted([f for f in os.listdir(TEMP_PNG_DIR) if os.path.isfile(os.path.join(TEMP_PNG_DIR,f))])
 def ensure_dir(d):
+    if os.path.isfile(d): os.remove(d)
     if not os.path.isdir(d): os.makedirs(d)
 def checkdel(fnp,isdel):  #True to check if deleted, False to check if exist (yet)
     retries = 60
@@ -37,16 +38,12 @@ def checkdel(fnp,isdel):  #True to check if deleted, False to check if exist (ye
 ensure_dir(TEMP_DIR)
 ensure_dir(TEMP_PNG_DIR)
 ensure_dir(OUTPUT_DIR)
-ensure_dir(TEMP_DIR+'/tin')
-ensure_dir(TEMP_DIR+'/tout')
-
 try:
     Image.Image.tobytes()
 except AttributeError:
     Image.Image.tobytes = Image.Image.tostring
 except:
     pass
-
 
 ENCODER_NAMES = {   1: "1B3X-ZX7",
                     2: "2B3X-ZX7",
@@ -160,8 +157,8 @@ class Framebuf():
             if self.cur_frame >= self.frames_per_segment:
                 framedata = None
         if not framedata and self.frame_buffer:
-            tfo = np(TEMP_DIR+"/tin/"+str(self.cur_segment))
-            tfc = np(TEMP_DIR+"/tout/"+str(self.cur_segment))
+            tfo = np(TEMP_DIR+"/tin")
+            tfc = np(TEMP_DIR+"/tout")
             if os.path.exists(tfo): os.remove(tfo)
             if os.path.exists(tfc): os.remove(tfc)
             if not checkdel(tfo,True):
@@ -176,8 +173,6 @@ class Framebuf():
             if not checkdel(tfc,False):
                 raise IOError("Output file "+tfo+" could not be created.")
             self.cmpr_arr.append(CmprSeg(self.cur_segment,readFile(tfc)))
-            if os.path.exists(tfo): os.remove(tfo)
-            if os.path.exists(tfc): os.remove(tfc)
             self.raw_len += len(self.frame_buffer)
             self.cmpr_len += self.cmpr_arr[-1].size
             sys.stdout.write("Output seg "+str(self.cur_segment)+" size "+str(self.cmpr_arr[-1].size)+"      \r")
@@ -532,15 +527,19 @@ prevpaldat = None
 imagedata = None
 
 for f in flist:
-    print f
-    img = Image.open(GETIMGPATH(f))
+    i = Image.open(GETIMGPATH(f)).convert("RGB").tobytes()
+    i = iter( [ord(b)&~7 for b in i] )
+    i = zip(i,i,i)
+    img = Image.new("RGB",(img_width,img_height))
+    img.putdata(i)
+    
     imgdata = []
     if vid_encoder == '1':
-        imgdata = img.convert('1',None,dithering).tostring() # Changed from .tobytes() to be compatible with the latest PIL version
+        imgdata = img.convert('1',None,dithering).tobytes()
     elif vid_encoder == '2':
         palimg.putpalette([0,0,0,102,102,102,176,176,176,255,255,255]*64)
         timg = quantizetopalette(img,palimg,dithering)
-        timgdat = timg.tostring()
+        timgdat = timg.tobytes()
         #app.updateframe(timg)
         for i in range(len(timgdat)/4):
             t = 0
@@ -550,7 +549,7 @@ for f in flist:
     elif vid_encoder == '3':
         palimg.putpalette([0,0,0,102,102,102,176,176,176,255,255,255]*64)
         timg = quantizetopalette(img,palimg,dithering)
-        timgdat = timg.tostring()
+        timgdat = timg.tobytes()
         #app.updateframe(timg)
         for i in range(len(timgdat)/4):
             t = 0
@@ -558,7 +557,7 @@ for f in flist:
                 t += (ord(timgdat[(i*4)+j])&3)<<(2*j)
             imgdata.append(t)
     elif vid_encoder == '4':
-        imgdata = img.convert('1',None,dithering).tostring() # Changed from .tobytes() to be compatible with the latest PIL version
+        imgdata = img.convert('1',None,dithering).tobytes()
     elif vid_encoder == '5':
         palette = [0,0,0, 128,0,0, 0,128,0, 0,0,128,
                    128,128,0, 0,128,128, 128,0,128,  85, 85, 85,
@@ -566,7 +565,7 @@ for f in flist:
                    255,255,0, 0,255,255, 255,0,255, 255,255,255]
         palimg.putpalette(palette*16)
         timg = quantizetopalette(img,palimg,dithering)
-        timgdat = timg.tostring()
+        timgdat = timg.tobytes()
         #app.updateframe(timg)
         for i in range(len(timgdat)/2):
             t = 0
@@ -648,13 +647,7 @@ for f in flist:
     elif vid_encoder == '7':
         palimg.putpalette(gspal4bpp*16)
         timg = quantizetopalette(img,palimg,dithering)
-        palettebin = ''
-        for i in range(0,15):
-            r,g,b = ((p[i][0]>>3)&0x1F,(p[i][1]>>3)&0x1F,(p[i][2]>>3)&0x1F)
-            t = (r<<10)+(g<<5)+b
-            palettebin += struct.pack("<H",t)
-        timgdat = str(bytearray(timg.tostring()))
-        app.updateframe(timg)
+        timgdat = timg.tobytes()
         #app.updateframe(timg)
         for i in range(len(timgdat)/2):
             t = 0

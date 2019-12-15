@@ -31,9 +31,11 @@
 #include <debug.h>
 #include <keypadc.h>
 #include <graphx.h>
+#include <fileioc.h>
+/* COMMENT OUT ONE OR THE OTHER IF COMPILER COMPLAINS OF ONE OF THESE MISSING */
 //#include <decompress.h>
 #include <compression.h>
-#include <fileioc.h>
+/* -------------------------------------------------------------------------- */
 
 #include "gfx/sprites_gfx.h"
 
