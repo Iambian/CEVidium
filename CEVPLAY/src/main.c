@@ -32,10 +32,11 @@
 #include <keypadc.h>
 #include <graphx.h>
 #include <fileioc.h>
-/* COMMENT OUT ONE OR THE OTHER IF COMPILER COMPLAINS OF ONE OF THESE MISSING */
-//#include <decompress.h>
-#include <compression.h>
-/* -------------------------------------------------------------------------- */
+
+/* This prototype is used instead of decompress.h because some users have
+   complained about the file being missing in the newer versions of the SDK.
+   The function definition appears to still exists. Somewhere. */
+void dzx7_Turbo(void *src, void *dst);
 
 #include "gfx/sprites_gfx.h"
 
