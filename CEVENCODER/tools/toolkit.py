@@ -24,6 +24,7 @@ def GETIMGNAMES():
     global TEMP_PNG_DIR
     return sorted([f for f in os.listdir(TEMP_PNG_DIR) if os.path.isfile(os.path.join(TEMP_PNG_DIR,f))])
 def ensure_dir(d):
+    if os.path.isfile(d): os.remove(d)
     if not os.path.isdir(d): os.makedirs(d)
 def checkdel(fnp,isdel):  #True to check if deleted, False to check if exist (yet)
     retries = 60

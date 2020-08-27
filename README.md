@@ -24,19 +24,21 @@ Converting the Video
 1. Copy your .MP4 or other video file to the CEVENCODER folder.
 2. Rename that video to a name that contains 8 or less characters.
 3. Open a command prompt in the CEVENCODER folder.
-4. Type: `BUILD2.BAT -h`
+4. Type: 
+   * `BUILD2.BAT -h`
 5. Read the options, then retype the above line without the '-h' flag and with
    the flags that you want. For example, if your input video is MYVID.mp4 and you
    wanted to use the 96-by-X 4 level grayscale encoding with dithering:
-   `BUILD2.BAT -i MYVID.mp4 -e M1G4 -d`
+   * `BUILD2.BAT -i MYVID.mp4 -e M1G4 -d`
 6. If everything worked, copy the contents of CEVENCODER/bin to your calculator.
 
 Building and Sending the Video Player
 -------------------------------------
 1. If you have not installed the CE programming toolchain, download and install
    from: https://github.com/CE-Programming/toolchain/releases
-2. Open a command prompt in the CEVPLAY folder and type 'make' to build the
-   video player.
+2. Open a command prompt in the CEVPLAY folder and type the following in order:
+   * `make gfx`
+   * `make`
 3. If everything worked, copy CEVPLAY/bin/CEVIDIUM.8xp to your calculator.
 
 Building and Sending the Decoders
@@ -52,6 +54,12 @@ Copyrights and Licenses
   See CEVDECODER/tools/SPASM_LICENSE for details.
 * The rest of Project CEVidium was done by me.
   See LICENSE for details.
+  
+Acknowledgements
+----------------
+* Merged fix for counting logic, by github user ctrefethen
+* Those fixes for the original version of the encoder, by commandblockguy, whose
+  pull requests I mismanaged because I didn't know what I was doing. (sorry!)
   
 Controlling the Video Player
 ----------------------------
@@ -77,8 +85,9 @@ Controls during playback:
  
 Version History
 ---------------
-0.00 - Initial commit
-0.01 - Updated the documentation to make what's available actually useable
+* 0.00 - Initial commit
+* 0.01 - Updated the documentation to make what's available actually useable
+* 0.02 - Updated docs again, figuring out merge stuff to include others' improvements.
 
 Known Issues
 ------------
