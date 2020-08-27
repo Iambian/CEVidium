@@ -1,4 +1,5 @@
-/CEVPLAY/bin
+CEVPLAY/bin/*
+!CEVPLAY/bin/CEVIDIUM.8xp
 /CEVPLAY/obj
 /CEVPLAY/src/gfx/*.c
 /CEVPLAY/src/gfx/*.h
@@ -6,6 +7,5 @@
 /CEVENCODER/bin
 /CEVENCODER/obj
 /CEVENCODER/*.mp4
-/CEVDECODER/bin
-/CEVDECODER/old
 /CEVENCODER/tools/*.pyc
+/CEVDECODER/old
