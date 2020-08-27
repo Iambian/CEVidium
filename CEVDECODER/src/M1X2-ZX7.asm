@@ -117,7 +117,9 @@ _:		AND A,%11111000
 		JR Z,+_
 		INC A
 _:		AND A,%00011111
-		LD (sfs_8x8_vidoffset),A
+		JR NZ,_
+		LD A,%00100000  ;KLUDGE FOR 4:3 VIDEOS
+_:		LD (sfs_8x8_vidoffset),A
 		;SET UP TIMER HARDWARE - UNSETS POINTER TO STRUCT
 		CALL resetTimer
 		;SYSTEM SET UP. START THE DECODER.
@@ -679,9 +681,10 @@ df_smc_hdraw .EQU $+1
 	LD A,C
 	LD DE,FF_END
 df_horizontaldraw:
+	OR A
+	SBC HL,HL
 	LD L,(IY+0)
-	LD H,2
-	MLT HL
+	ADD HL,HL  ;X2
 	ADD HL,DE
 	LD HL,(HL)
 	LD (IX+0),L
