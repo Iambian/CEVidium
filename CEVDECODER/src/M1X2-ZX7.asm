@@ -117,8 +117,8 @@ _:		AND A,%11111000
 		JR Z,+_
 		INC A
 _:		AND A,%00011111
-		JR NZ,_
-		LD A,%00100000  ;KLUDGE FOR 4:3 VIDEOS
+		JR NZ,_			;KLUDGE FOR 4:3 VIDEOS
+		LD A,%00100000  ;THIS IS A TERRIBLE HACK THERE HAS TO BE A BETTER WAY
 _:		LD (sfs_8x8_vidoffset),A
 		;SET UP TIMER HARDWARE - UNSETS POINTER TO STRUCT
 		CALL resetTimer
@@ -474,7 +474,7 @@ _:	LD E,A
 	JP MF_SKIP_FRAME_DRAW
 sfs_skip_8x8boxes:
 	;Out of bounds video data. Do not process. End video playback.
-	JR $ ;#@#@#@#@#@#@#@#@#@#@#@#@#@#@#@#
+	;JR $
 	POP AF
 	POP AF
 	POP IY

@@ -88,6 +88,9 @@ Version History
 * 0.00 - Initial commit
 * 0.01 - Updated the documentation to make what's available actually useable
 * 0.02 - Updated docs again, figuring out merge stuff to include others' improvements.
+* 0.03 - Fixed a bug that prevented 4:3 video playback with the M1X2-ZX7 decoder.
+		 Also changed UI spacing in the media player for readability and made
+		 it easier to make other changes like that in the future.
 
 Known Issues
 ------------

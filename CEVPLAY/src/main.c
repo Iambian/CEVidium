@@ -7,7 +7,54 @@
  *--------------------------------------
 */
 
-#define VERSION_INFO "v0.2"
+#define T_UIWIDTH 309
+#define T_UISTARTX 5
+#define T_UISTARTY 65
+#define T_UIBARHEIGHT 4
+#define T_DIAHEIGHT 19
+#define T_NUMLINES 4
+#define T_TEXTYSTART 8
+
+#define T_XPOS(x)  (T_UISTARTX+x)
+#define T_YPOS(ln) (T_UISTARTY+(T_DIAHEIGHT*ln))
+#define T_TTLPLC(xofs,ylinenum,width) (T_XPOS(xofs)),(T_YPOS(ylinenum)),(T_XPOS(xofs)+width),(T_YPOS(ylinenum)+T_UIBARHEIGHT)
+#define T_TEXTY(ylinenum) (T_YPOS(ylinenum)+T_TEXTYSTART)
+
+#define T_VNAMEX 0
+#define T_VNAMELINE 0
+#define T_VNAMEWIDTH 309
+
+#define T_VAUTHX 0
+#define T_VAUTHLINE 1
+#define T_VAUTHWIDTH 309
+
+#define T_FNAMEX 0
+#define T_FNAMELINE 2
+#define T_FNAMEWIDTH 65
+
+#define T_DNAMEX (T_FNAMEWIDTH+2)
+#define T_DNAMELINE 2
+#define T_DNAMEWIDTH 65
+
+#define T_VDIMSX (T_FNAMEWIDTH+2+T_DNAMEWIDTH+2)
+#define T_VDIMSLINE 2
+#define T_VDIMSWIDTH 57
+
+#define T_VILENX (T_FNAMEWIDTH+2+T_DNAMEWIDTH+2+T_VDIMSWIDTH+2)
+#define T_VILENLINE 2
+#define T_VILENWIDTH 57
+
+#define T_BTSPPX (T_FNAMEWIDTH+2+T_DNAMEWIDTH+2+T_VDIMSWIDTH+2+T_VILENWIDTH+2)
+#define T_BTSPPLINE 2
+#define T_BTSPPWIDTH 57
+
+#define T_RESRVX 0
+#define T_RESRVLINE 3
+#define T_RESRVWIDTH 309
+
+
+
+#define VERSION_INFO "v0.3"
 #define LARGEST_SPRITE_SIZE 6000
 #define COLOR_SKYBLUE 0xBF
 #define COLOR_DARKBLUE 25
@@ -108,47 +155,48 @@ void main(void) {
 			gfx_FillScreen(COLOR_SKYBLUE);
 			dispsprite(logo_compressed,64,12);
 			gfx_SetColor(COLOR_DARKBLUE);
-			rect(4,64,315,132);
+			gfx_Rectangle_NoClip((T_UISTARTX-1),(T_UISTARTY-1),(T_UIWIDTH+1+1),(T_DIAHEIGHT*T_NUMLINES));
 			//Black bar (fill) boxes and borders
-			titlebar(videoname_compressed,5,65,314,69);
-			titlebar(videoauthor_compressed,5,82,314,86);
-			titlebar(filename_compressed,5,99,70,103);
-			titlebar(decodername_compressed,72,99,137,103);
-			titlebar(videodimensions_compressed,139,99,196,103);
-			titlebar(videolength_compressed,198,99,255,103);
-			titlebar(bitdepth_compressed,257,99,314,103);
-			titlebar(reserved_compressed,5,116,314,120);
+titlebar(videoname_compressed,      T_TTLPLC(T_VNAMEX,T_VNAMELINE,T_VNAMEWIDTH));
+titlebar(videoauthor_compressed,    T_TTLPLC(T_VAUTHX,T_VAUTHLINE,T_VAUTHWIDTH));
+titlebar(filename_compressed,       T_TTLPLC(T_FNAMEX,T_FNAMELINE,T_FNAMEWIDTH));
+titlebar(decodername_compressed,    T_TTLPLC(T_DNAMEX,T_DNAMELINE,T_DNAMEWIDTH));
+titlebar(videodimensions_compressed,T_TTLPLC(T_VDIMSX,T_VDIMSLINE,T_VDIMSWIDTH));
+titlebar(videolength_compressed,    T_TTLPLC(T_VILENX,T_VILENLINE,T_VILENWIDTH));
+titlebar(bitdepth_compressed,       T_TTLPLC(T_BTSPPX,T_BTSPPLINE,T_BTSPPWIDTH));
+titlebar(reserved_compressed,       T_TTLPLC(T_RESRVX,T_RESRVLINE,T_RESRVWIDTH));
 			//Fill in other divider lines
 			gfx_SetColor(COLOR_DARKBLUE);
-			gfx_VertLine_NoClip(71,105,10);  //between filename and decodername
-			gfx_VertLine_NoClip(138,105,10); //between decodername and videodimensions
-			gfx_VertLine_NoClip(197,105,10); //between videodimensions and videolength
-			gfx_VertLine_NoClip(256,105,10); //between videolength and bitdepth
+gfx_VertLine_NoClip(T_XPOS(T_DNAMEX-1),T_YPOS(2),T_DIAHEIGHT); //btwn filename and decodername
+gfx_VertLine_NoClip(T_XPOS(T_VDIMSX-1),T_YPOS(2),T_DIAHEIGHT); //btwn decodername and videodimensions
+gfx_VertLine_NoClip(T_XPOS(T_VILENX-1),T_YPOS(2),T_DIAHEIGHT); //btwn videodimensions and videolength
+gfx_VertLine_NoClip(T_XPOS(T_BTSPPX-1),T_YPOS(2),T_DIAHEIGHT); //btwn videolength and bitdepth
 			//Fill in text for title and author
 			gfx_SetTextScale(1,1);
 			texty = 80;
-			centerxtext(video.title,72);
-			centerxtext(video.author,89);
+			centerxtext(video.title, T_TEXTY(T_VNAMELINE));
+			centerxtext(video.author,T_TEXTY(T_VAUTHLINE));
 			//Print filename
-			gfx_SetTextXY(6,106);
+			gfx_SetTextXY(T_XPOS(T_FNAMEX+1),T_TEXTY(T_FNAMELINE));
 			gfx_PrintString(varname);
 			
 			//Fill in video dimensions text and sprite object
-			gfx_SetTextXY(140,106);
+			gfx_SetTextXY(T_XPOS(T_VDIMSX+1),T_TEXTY(T_VDIMSLINE));
 			gfx_PrintUInt(video.w,3);
-			dispsprite(x_compressed,164,108);
-			gfx_SetTextXY(171,106);
+			dispsprite(x_compressed,T_XPOS(T_VDIMSX+1+24),(T_TEXTY(T_VDIMSLINE)+2));
+			gfx_SetTextXY(T_XPOS(T_VDIMSX+1+24+7),T_TEXTY(T_VDIMSLINE));
 			gfx_PrintUInt(video.h,3);
 			//Fill in video time
-			dispsprite(colon_compressed,216,107);
-			dispsprite(colon_compressed,236,107);
+			//BASE LOCATION 199 (XPOS(T_VILENX+1)
+			dispsprite(colon_compressed,T_XPOS(T_VILENX+17),T_TEXTY(T_VILENLINE)+1);
+			dispsprite(colon_compressed,T_XPOS(T_VILENX+37),T_TEXTY(T_VILENLINE)+1);
 			timevar = video.segframes * video.segments;
 			
-			gfx_SetTextXY(239,106);  //SECONDS
+			gfx_SetTextXY(T_XPOS(T_VILENX+41),T_TEXTY(T_VILENLINE));  //SECONDS
 			gfx_PrintUInt((int)(timevar/framerate)%60,2);
-			gfx_SetTextXY(219,106);  //MINUTES
+			gfx_SetTextXY(T_XPOS(T_VILENX+21),T_TEXTY(T_VILENLINE));  //MINUTES
 			gfx_PrintUInt((int)(timevar/(60*framerate))%60,2);
-			gfx_SetTextXY(199,106);  //HOURS
+			gfx_SetTextXY(T_XPOS(T_VILENX+1),T_TEXTY(T_VILENLINE));   //HOURS
 			gfx_PrintUInt((int)(timevar/(60*60*framerate)),2);
 			/*
 			gfx_PrintStringXY("Frames per segment: ",5,70);
@@ -157,11 +205,11 @@ void main(void) {
 			gfx_PrintUInt(video.segments,5);
 			*/
 			//Fill in decoder
-			gfx_SetTextXY(73,106);
+			gfx_SetTextXY(T_XPOS(T_DNAMEX+1),T_TEXTY(T_DNAMELINE));
 			gfx_PrintString(video.codec);
 			
 			//Fill in bit depth
-			gfx_SetTextXY(258,106);
+			gfx_SetTextXY(T_XPOS(T_BTSPPX+1),T_TEXTY(T_BTSPPLINE));
 			if (video.bitdepth>(bitdepthsize-1)) gfx_PrintString("N/A");
 			else gfx_PrintString(bitdepthcode[video.bitdepth]);
 			
