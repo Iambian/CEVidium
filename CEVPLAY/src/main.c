@@ -155,7 +155,7 @@ void main(void) {
 			gfx_FillScreen(COLOR_SKYBLUE);
 			dispsprite(logo_compressed,64,12);
 			gfx_SetColor(COLOR_DARKBLUE);
-			gfx_Rectangle_NoClip((T_UISTARTX-1),(T_UISTARTY-1),(T_UIWIDTH+1+1),(T_DIAHEIGHT*T_NUMLINES));
+			gfx_Rectangle_NoClip((T_UISTARTX-1),(T_UISTARTY-1),(T_UIWIDTH+1+1+1),(T_DIAHEIGHT*T_NUMLINES));
 			//Black bar (fill) boxes and borders
 titlebar(videoname_compressed,      T_TTLPLC(T_VNAMEX,T_VNAMELINE,T_VNAMEWIDTH));
 titlebar(videoauthor_compressed,    T_TTLPLC(T_VAUTHX,T_VAUTHLINE,T_VAUTHWIDTH));
