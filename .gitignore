@@ -1,8 +1,7 @@
 CEVPLAY/bin/*
 !CEVPLAY/bin/CEVIDIUM.8xp
 /CEVPLAY/obj
-/CEVPLAY/src/gfx/*.c
-/CEVPLAY/src/gfx/*.h
+/CEVPLAY/src/gfx/out/*
 /CEVPLAY/src/gfx/*.log
 /CEVENCODER/bin
 /CEVENCODER/obj
