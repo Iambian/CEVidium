@@ -13,6 +13,7 @@
 #define T_UI_BARHGHT 4
 #define T_UI_DHT 19
 #define T_NUMLINES 4
+#define T_TEXTXSTART 2
 #define T_TEXTYSTART 8
 
 #define CAT(x,y) CAT_(x,y)
@@ -24,6 +25,9 @@
 #define T_DIALOG(b) T_TPLC(CAT(b,X),CAT(b,LINE),CAT(b,WIDTH))
 #define T_TEXTY(ynm) (T_YPOS(ynm)+T_TEXTYSTART)
 #define T_VERTDIV(base) (T_XPOS(CAT(base,X))+CAT(base,WIDTH)),(T_YPOS(CAT(base,LINE))),T_UI_DHT
+#define T_NGUIE(base) T_XPOS(CAT(base,X)),T_YPOS(CAT(base,LINE)),CAT(base,WIDTH)
+
+
 /* Line 0 */
 #define T_VNAMEX 0
 #define T_VNAMELINE 0
@@ -95,6 +99,9 @@
 
 #include "gfx/out/sprites_gfx.h"
 
+
+typedef void (*content_callback)(void);
+
 /* Put your function prototypes here */
 void playvideo(char *vn);
 void centerxtext(char* strobj,int y);
@@ -105,16 +112,30 @@ void printerr(char *s);
 void get_video_metadata(char *main_file_name);
 char *getnextvideo();
 void dispsprite(void *compsprite,int x,int y);
-void titlebar(void *compsprite, int x1, int y1, int x2, int y2);
-void rect(int x1, int y1, int x2, int y2);
+
+
+void GUIElem(int x, int y, int w, void* csprite, content_callback callback);
+
+void GUI_ShowVideoTitle(void);
+void GUI_ShowVideoAuthor(void);
+void GUI_ShowFilename(void);
+void GUI_ShowPlaybackTime(void);
+void GUI_ShowDecoder(void);
+void GUI_ShowBitDepth(void);
+void GUI_ShowFrameSize(void);
+void GUI_ShowFrameCount(void);
+void GUI_Reserved(void);
+
 
 /* Put all your globals here */
 uint8_t texty;
-char codecname[] = {0,0,0,0,0,0,0,0,0};  //9 bytes, always alias to video.codec
+char codecname[9];     //9 bytes, always alias to video.codec
 uint8_t* decoder_start_address;
 uint8_t bitdepthsize = 7;
 char *bitdepthcode[] = {"1bpp b/w","2bpp gray","4bpp gray","4bpp color","4bpp adp","8bpp color","8bpp adp"};
 uint8_t *commondata; //Make it large enough to decompress largest sprite object
+char* varname_alias;
+char *nonestring = "[N/A]";
 
 
 uint8_t grays[] = {0x00,0x6B,0xB5,0xFF};
@@ -128,6 +149,7 @@ struct {
 	int h;
 	int segframes;
 	int bitdepth;
+	char framerate;
 } video;
 
 void main(void) {
@@ -137,7 +159,6 @@ void main(void) {
 	uint8_t* fileptr;
 	char *varname;
 	int timevar;
-	int framerate;
 	
 	
 	gfx_Begin(gfx_8bpp);
@@ -148,6 +169,7 @@ void main(void) {
 
 	//Generate list here.
 	varname = getnextvideo();
+	varname_alias = varname;	//Store to global for callback use
 	if (varname != NULL) {
 		while (1) {
 			kb_Scan();
@@ -158,80 +180,21 @@ void main(void) {
 			if (k) { if (!getnextvideo()) break;}
 			keywait();
 			/* Render interface */
-			framerate = 30;
 			//Background, title, and main box
 			gfx_FillScreen(COLOR_SKYBLUE);
 			dispsprite(logo_compressed,64,12);
 			gfx_SetColor(COLOR_DARKBLUE);
-			gfx_Rectangle_NoClip((T_UI_STRTX-1),(T_UI_STRTY-1),(T_UI_WIDTH+1+1+1),(T_UI_DHT*T_NUMLINES));
-			//Black bar (fill) boxes and borders
-			titlebar(videotitle_compressed,     T_DIALOG(T_VNAME));
-			titlebar(videoauthor_compressed,    T_DIALOG(T_VAUTH));
-			titlebar(filename_compressed,       T_DIALOG(T_FNAME));
-			titlebar(playbacktime_compressed,   T_DIALOG(T_VTIME));
-			titlebar(decodertag_compressed,     T_DIALOG(T_DNAME));
-			titlebar(bitdepth_compressed,       T_DIALOG(T_BTSPP));
-			titlebar(framesize_compressed,      T_DIALOG(T_VDIMS));
-			titlebar(framecount_compressed,     T_DIALOG(T_FRMCT));
-			titlebar(reserved_compressed,       T_DIALOG(T_RESRV));
-			//Fill in other divider lines
-			gfx_SetColor(COLOR_DARKBLUE);
-			
-			gfx_VertLine_NoClip(T_VERTDIV(T_FNAME)); //after filename
-			gfx_VertLine_NoClip(T_VERTDIV(T_VTIME)); //after playback time
-			gfx_VertLine_NoClip(T_VERTDIV(T_DNAME)); //after decoder name
-			gfx_VertLine_NoClip(T_VERTDIV(T_VDIMS)); //after frame size
-			gfx_VertLine_NoClip(T_VERTDIV(T_FRMCT)); //after frame count
-			
-			
-//gfx_VertLine_NoClip(T_XPOS(T_VDIMSX-1),T_YPOS(2),T_UI_DHT); //btwn decodername and videodimensions
-//gfx_VertLine_NoClip(T_XPOS(T_VTIMEX-1),T_YPOS(2),T_UI_DHT); //btwn videodimensions and videolength
-//gfx_VertLine_NoClip(T_XPOS(T_BTSPPX-1),T_YPOS(2),T_UI_DHT); //btwn videolength and bitdepth
-			//Fill in text for title and author
-			gfx_SetTextScale(1,1);
-			texty = 80;
-			centerxtext(video.title, T_TEXTY(T_VNAMELINE));
-			centerxtext(video.author,T_TEXTY(T_VAUTHLINE));
-			//Print filename
-			gfx_SetTextXY(T_XPOS(T_FNAMEX+2),T_TEXTY(T_FNAMELINE));
-			gfx_PrintString(varname);
-			
-			//Fill in video dimensions text and sprite object
-			gfx_SetTextXY(T_XPOS(T_VDIMSX+2),T_TEXTY(T_VDIMSLINE));
-			gfx_PrintUInt(video.w,3);
-			dispsprite(x_compressed,T_XPOS(T_VDIMSX+2+24),(T_TEXTY(T_VDIMSLINE)+2));
-			gfx_SetTextXY(T_XPOS(T_VDIMSX+2+24+7),T_TEXTY(T_VDIMSLINE));
-			gfx_PrintUInt(video.h,3);
-			//Fill in video time
-			//BASE LOCATION 199 (XPOS(T_VTIMEX+1)
-			dispsprite(colon_compressed,T_XPOS(T_VTIMEX+18),T_TEXTY(T_VTIMELINE)+1);
-			dispsprite(colon_compressed,T_XPOS(T_VTIMEX+38),T_TEXTY(T_VTIMELINE)+1);
-			timevar = video.segframes * video.segments;
-			
-			gfx_SetTextXY(T_XPOS(T_VTIMEX+42),T_TEXTY(T_VTIMELINE));  //SECONDS
-			gfx_PrintUInt((int)(timevar/framerate)%60,2);
-			gfx_SetTextXY(T_XPOS(T_VTIMEX+22),T_TEXTY(T_VTIMELINE));  //MINUTES
-			gfx_PrintUInt((int)(timevar/(60*framerate))%60,2);
-			gfx_SetTextXY(T_XPOS(T_VTIMEX+2),T_TEXTY(T_VTIMELINE));   //HOURS
-			gfx_PrintUInt((int)(timevar/(60*60*framerate)),2);
-			/*
-			gfx_PrintStringXY("Frames per segment: ",5,70);
-			gfx_PrintUInt(video.segframes,3);
-			gfx_PrintStringXY("Segments total: ",5,80);
-			gfx_PrintUInt(video.segments,5);
-			*/
-			//Fill in number of frames total
-			gfx_SetTextXY(T_XPOS(T_FRMCTX+2),T_TEXTY(T_FRMCTLINE));
-			gfx_PrintUInt(video.segframes*video.segments,1);
-			
-			//Fill in decoder
-			gfx_SetTextXY(T_XPOS(T_DNAMEX+2),T_TEXTY(T_DNAMELINE));
-			gfx_PrintString(video.codec);
-			
-			//Fill in bit depth
-			gfx_SetTextXY(T_XPOS(T_BTSPPX+2),T_TEXTY(T_BTSPPLINE));
-			if (video.bitdepth>(bitdepthsize-1)) gfx_PrintString("N/A");
-			else gfx_PrintString(bitdepthcode[video.bitdepth]);
+			gfx_Rectangle_NoClip((T_UI_STRTX-1),(T_UI_STRTY-1),(T_UI_WIDTH+1+1+1),(T_UI_DHT*T_NUMLINES)+1);
+			//Shows video stats
+			GUIElem(T_NGUIE(T_VNAME),videotitle_compressed,&GUI_ShowVideoTitle);
+			GUIElem(T_NGUIE(T_VAUTH),videoauthor_compressed,&GUI_ShowVideoAuthor);
+			GUIElem(T_NGUIE(T_VTIME),playbacktime_compressed,&GUI_ShowPlaybackTime);
+			GUIElem(T_NGUIE(T_FNAME),filename_compressed,&GUI_ShowFilename);
+			GUIElem(T_NGUIE(T_DNAME),decodertag_compressed,&GUI_ShowDecoder);
+			GUIElem(T_NGUIE(T_BTSPP),bitdepth_compressed,&GUI_ShowBitDepth);
+			GUIElem(T_NGUIE(T_VDIMS),framesize_compressed,&GUI_ShowFrameSize);
+			GUIElem(T_NGUIE(T_FRMCT),framecount_compressed,&GUI_ShowFrameCount);
+			GUIElem(T_NGUIE(T_RESRV),reserved_compressed,&GUI_Reserved);
 			
 			//Print version information at the bottom right corner of screen
 			gfx_SetTextXY(290,230);
@@ -340,96 +303,16 @@ void playvideo(char *vn) {
 	
 	printline("Running video decoder...");
 	keywait();  //Prevent video decoder from receiving any unwanted keystrokes
-	runDecoder(vptr_array, (uint8_t*) &video);
-
-
-	// if ((decomp_buffer = malloc(50000)) == NULL) {
-		// printerr("Cannot mallc decomp buffer.");
-		// free(vptr_array);
-		// return;
-		
-	// }
-	// j3 = 0;
-	// gfx_SetTextFGColor(0xEF);
-	// for (i3 = 0;i3<video.segments;i3++) {
-		// sprintf(dbgout,"Outputting segment %i\n",i3);
-		// dzx7_Turbo(vptr_array[i3],decomp_buffer);
-		// decomp_cptr = decomp_buffer;
-		// for (i1 = 0;i1<15;i1++) {
-			// draw_ptr = (void*) gfx_vbuffer;
-			// for(j1 = 0; j1 < video.h ; j1++) {
-				// for (k1 = 0; k1<24 ; k1++) {
-					// cur_decomp_byte = *decomp_cptr;
-					// decomp_cptr++;
-					// for(l1 = 0 ; l1 < 4 ; l1 ++){
-						// *draw_ptr = grays[cur_decomp_byte&3];
-						// cur_decomp_byte >>= 2;
-						// draw_ptr++;
-					// }
-				// }
-				// draw_ptr +=224;
-			// }
-			// gfx_SetTextXY(0,0);
-			// gfx_PrintUInt(j3++,4);
-			
-			// gfx_SwapDraw();
-		// }
-	// }
-	// gfx_SetTextFGColor(0x00);
 	
-	// for (i3 = 0;i3<video.segments;i3++) {
-		// sprintf(dbgout,"Outputting segment %i\n",i3);
-		// dzx7_Turbo(vptr_array[i3],decomp_buffer);
-		// decomp_cptr = decomp_buffer;
-		// for (i1 = 0;i1<30;i1++) {
-			// draw_ptr = (void*) gfx_vbuffer;
-			// draw_ptr += 320;
-			// for(j1 = 0; j1 < video.h ; j1++) {
-				// for (k1 = 0; k1<12 ; k1++) {
-					// cur_decomp_byte = *decomp_cptr;
-					// decomp_cptr++;
-					// for(l1 = 0 ; l1 < 8 ; l1 ++){
-						// if (cur_decomp_byte&0x80) {
-							// draw_ptr[0   ] = 0xFF;
-							// draw_ptr[1   ] = 0xFF;
-							// draw_ptr[2   ] = 0xFF;
-							// draw_ptr[-320] = 0xFF;
-							// draw_ptr[-319] = 0xFF;
-							// draw_ptr[-318] = 0xFF;
-							// draw_ptr[320 ] = 0xFF;
-							// draw_ptr[321 ] = 0xFF;
-							// draw_ptr[322 ] = 0xFF;
-						// } else {
-							// draw_ptr[0   ] = 0x00;
-							// draw_ptr[1   ] = 0x00;
-							// draw_ptr[2   ] = 0x00;
-							// draw_ptr[-320] = 0x00;
-							// draw_ptr[-319] = 0x00;
-							// draw_ptr[-318] = 0x00;
-							// draw_ptr[320 ] = 0x00;
-							// draw_ptr[321 ] = 0x00;
-							// draw_ptr[322 ] = 0x00;
-						// }
-						// cur_decomp_byte<<=1;
-						// draw_ptr+=3;
-					// }
-				// }
-				// draw_ptr +=(32+(320*2));
-			// }
-			// gfx_SwapDraw();
-		// }
-	// }
+	runDecoder(vptr_array, (uint8_t*) &video);
 	
 	dbg_sprintf(dbgout,"VIDEO ADR 2: %x, AT DATA: %x\n",&video,video.segments);
 
-	
 	free(vptr_array);
-	//free(decomp_buffer);
 	return;
 }
 
 
-char *nonestring = "[N/A]";
 void centerxtext(char* strobj,int y) {
 	int w;
 	w = gfx_GetStringWidth(strobj);
@@ -486,6 +369,8 @@ void get_video_metadata(char *main_file_name) {
 		ti_Read(&video.h,2,1,tmpslot);         //Get frame height
 		ti_Read(&video.segframes,1,1,tmpslot); //Get number of frames per segment
 		ti_Read(&video.bitdepth,1,1,tmpslot);  //Get video bit depth
+		//ti_Read(&video.framerate,1,1,tmpslot); //Get video frame rate
+		video.framerate = 30;
 	} else {
 		video.title = video.author = video.codec = "";
 	}
@@ -511,13 +396,65 @@ void dispsprite(void *compsprite,int x,int y) {
 	gfx_Sprite_NoClip((gfx_sprite_t*)commondata,x,y);
 }
 
-void titlebar(void *compsprite,int x1, int y1, int x2, int y2) {
-	gfx_SetColor(COLOR_BLACK);
-	gfx_FillRectangle_NoClip(x1,y1,x2-x1+1,y2-y1+1);
+void GUIElem(int x, int y, int w, void* csprite, content_callback callback) {
+	//Draw outlines
 	gfx_SetColor(COLOR_DARKBLUE);
-	rect(x1-1,y1-1,x2+1,y2+1);
-	dispsprite(compsprite,x1+1,y1);
+	gfx_Rectangle_NoClip(x-1,y-1,w+3,(T_UI_DHT+1));
+	gfx_HorizLine(x,y+(T_UI_BARHGHT+1),w+1);
+	//Draw titlebar background
+	gfx_SetColor(COLOR_BLACK);
+	gfx_FillRectangle_NoClip(x,y,w+1,(T_UI_BARHGHT+1));
+	//Draw titlebar
+	dispsprite(csprite,x+2,y);
+	//Prep to call the routines that renders UI element contents
+	gfx_SetTextXY(x+T_TEXTXSTART,y+T_TEXTYSTART);
+	callback();
 }
-void rect(int x1, int y1, int x2, int y2) {
-	gfx_Rectangle_NoClip(x1,y1,x2-x1+1,y2-y1+1);
+
+void GUI_ShowFilename(void) {
+	gfx_PrintString(varname_alias);
 }
+
+void GUI_ShowVideoTitle(void) {
+	centerxtext(video.title,gfx_GetTextY());
+}
+void GUI_ShowVideoAuthor(void) {
+	centerxtext(video.author,gfx_GetTextY());
+}
+void GUI_PrintSpacedChar(char c) {
+	int y = gfx_GetTextY();
+	gfx_SetTextXY(gfx_GetTextX()+1,y);
+	gfx_PrintChar(c);
+	gfx_SetTextXY(gfx_GetTextX()+1,y);
+}
+void GUI_ShowPlaybackTime(void) {
+	int time = ( video.segframes * video.segments) / video.framerate;
+	
+	gfx_PrintUInt(time / 3600   , 2);		//hours
+	GUI_PrintSpacedChar(':');
+	gfx_PrintUInt(time / 60 % 60, 2);		//minutes
+	GUI_PrintSpacedChar(':');
+	gfx_PrintUInt(time      % 60, 2);		//seconds
+}
+void GUI_ShowDecoder(void) {
+	gfx_PrintString(video.codec);
+}
+void GUI_ShowBitDepth(void) {
+	char *s;
+	if (video.bitdepth > bitdepthsize-1) 
+			s = nonestring;
+	else 	s = bitdepthcode[video.bitdepth];
+	gfx_PrintString(s);
+}
+void GUI_ShowFrameSize(void) {
+	gfx_PrintUInt(video.w,3);
+	GUI_PrintSpacedChar('x');
+	gfx_PrintUInt(video.h,3);
+}
+void GUI_ShowFrameCount(void) {
+	gfx_PrintUInt(video.segframes*video.segments,1);
+}
+void GUI_Reserved(void) {
+	return;
+}
+
