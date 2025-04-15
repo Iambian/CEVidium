@@ -1,33 +1,17 @@
 # ----------------------------
-# Set NAME to the program name
-# Set DEBUGMODE to "DEBUG" to use debug functions
-# Set ICON to the png icon file name
-# Set DESCRIPTION to display within a compatible shell
-# Set COMPRESSED to "YES" to create a compressed program
-# ** Add all shared library names to L **
+# Makefile Options
 # ----------------------------
 
-NAME        ?= CEVIDIUM
-DEBUGMODE   ?= DEBUG
-COMPRESSED  ?= NO
-ICON        ?= iconc.png
-DESCRIPTION ?= "CEVidium - Video Player"
+NAME = CEVIDIUM
+ICON = iconc.png
+DESCRIPTION = "CEVidium - Video Player"
+COMPRESSED = NO
+OUTPUT_MAP = YES
+ARCHIVED = NO
 
-L ?= graphx keypadc fileioc
-
-# ----------------------------
-# Specify source and output locations
-# ----------------------------
-
-SRCDIR ?= src
-OBJDIR ?= obj
-BINDIR ?= bin
-GFXDIR ?= src/gfx
+CFLAGS = -Wall -Wextra -Oz
+CXXFLAGS = -Wall -Wextra -Oz
 
 # ----------------------------
-# Use OS helper functions (Advanced)
-# ----------------------------
 
-USE_FLASH_FUNCTIONS ?= YES
-
-include $(CEDEV)/include/.makefile
+include $(shell cedev-config --makefile)

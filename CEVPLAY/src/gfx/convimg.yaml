@@ -1,0 +1,21 @@
+converts:
+  - name: cevidium_graphics
+    palette: xlibc
+    images:
+      -  other/logo.png
+      -  interface/*
+    compress: zx7
+
+outputs:
+  - type: c
+    include-file: sprites_gfx.h
+    directory: out
+    palettes: 
+      - xlibc
+    converts:
+      - cevidium_graphics
+    const: true
+
+
+
+

@@ -1,0 +1,7 @@
+{
+    "C_Cpp.default.compilerPath": "c:\\CEdev\\bin\\ez80-clang.exe",
+    "files.associations": {
+        "stdbool.h": "c",
+        "graphx.h": "c"
+    }
+}

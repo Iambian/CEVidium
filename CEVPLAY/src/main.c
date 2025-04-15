@@ -104,17 +104,17 @@ typedef void (*content_callback)(void);
 
 /* Put your function prototypes here */
 void playvideo(char *vn);
-void centerxtext(char* strobj,int y);
-void keywait();
+void centerxtext(char* strobj, int y);
+void keywait(void);
 void waitanykey();
 void printline(char *s);
 void printerr(char *s);
 void get_video_metadata(char *main_file_name);
 char *getnextvideo();
-void dispsprite(void *compsprite,int x,int y);
+void dispsprite(const void *compsprite,int x,int y);
 
 
-void GUIElem(int x, int y, int w, void* csprite, content_callback callback);
+void GUIElem(int x, int y, int w, const void* csprite, content_callback callback);
 
 void GUI_ShowVideoTitle(void);
 void GUI_ShowVideoAuthor(void);
@@ -152,18 +152,17 @@ struct {
 	char framerate;
 } video;
 
-void main(void) {
-	int x,y,i,j;
+int main(void) {
+	//int x,y,i,j;
 	kb_key_t k;
-	uint8_t *search_pos = NULL;
-	uint8_t* fileptr;
+	//void *search_pos = NULL;
+	//uint8_t* fileptr;
 	char *varname;
-	int timevar;
+	//int timevar;
 	
 	
 	gfx_Begin(gfx_8bpp);
 	gfx_SetDrawBuffer();
-	ti_CloseAll();
 	
 	commondata = malloc(LARGEST_SPRITE_SIZE); 
 
@@ -182,7 +181,7 @@ void main(void) {
 			/* Render interface */
 			//Background, title, and main box
 			gfx_FillScreen(COLOR_SKYBLUE);
-			dispsprite(logo_compressed,64,12);
+			dispsprite((void*)logo_compressed,64,12);
 			gfx_SetColor(COLOR_DARKBLUE);
 			gfx_Rectangle_NoClip((T_UI_STRTX-1),(T_UI_STRTY-1),(T_UI_WIDTH+1+1+1),(T_UI_DHT*T_NUMLINES)+1);
 			//Shows video stats
@@ -201,7 +200,14 @@ void main(void) {
 			gfx_PrintString(VERSION_INFO);
 			gfx_SwapDraw();
 		}
-	}
+	} else {
+		gfx_FillScreen(COLOR_SKYBLUE);
+		dispsprite(logo_compressed,64,12);
+		gfx_SetColor(COLOR_DARKBLUE);
+		printline("No files found. File GUI not loaded.");
+		printerr("Feed CEVidium files! Files required!");
+		waitanykey();
+	};
 	gfx_End();
 	free(commondata);
 }
@@ -209,18 +215,19 @@ void main(void) {
 void playvideo(char *vn) {
 	char vidname[9];    //max file name length plus null terminator
 	char *detname;
-	uint8_t **vptr_array, *search_pos, *data_ptr, numfields, status, i;
+	void *search_pos;
+	uint8_t **vptr_array, *data_ptr, numfields, status;
 	uint16_t field_serial, field_size;
 	ti_var_t slot;
 	int seg_count;
 	void (*runDecoder)(uint8_t**,uint8_t*) = (void*) &decoder_start_address;
-	int i3,j3,k3;
-	uint8_t i1,j1,k1,l1,*decomp_buffer,*decomp_cptr,*draw_ptr,cur_decomp_byte;
+	//int i3,j3,k3;
+	//uint8_t i1,j1,k1,l1,*decomp_buffer,*decomp_cptr,*draw_ptr,cur_decomp_byte;
 
 	dbg_sprintf(dbgout,"VIDEO ADR 1: %x, AT DATA: %x\n",&video,video.segments);
 
 	get_video_metadata(vn);   //re-retrieve metadata from file
-	memcpy(vidname,vn,10);    //create local copy of vn
+	memcpy(vidname,vn,9);    //create local copy of vn
 	
 	texty = 150;
 	printline("Loading video...");
@@ -233,9 +240,9 @@ void playvideo(char *vn) {
 	search_pos = NULL;
 	seg_count = 0;
 	/* Check for all files that may contain video data */
-	while (detname = ti_Detect(&search_pos,"8CEVDat")) {
+	while ((detname = ti_Detect(&search_pos,"8CEVDat"))) {
 		/* Make sure that the possible video file is opened successfully */
-		if (slot = ti_Open(detname,"r")) {
+		if ((slot = ti_Open(detname,"r"))) {
 			ti_Seek(7,SEEK_SET,slot);
 			//sprintf(dbgout,"Checking vid data name %s using slot %i against main %s\n",vidname,vdat_slot,detname);
 			/* Make sure that the video file belongs to the one being played */
@@ -276,8 +283,8 @@ void playvideo(char *vn) {
 	
 	search_pos = NULL;
 	status = 0;
-	while (detname = ti_Detect(&search_pos,"8CECPck")) {
-		if (slot = ti_Open(detname,"r")) {
+	while ((detname = ti_Detect(&search_pos,"8CECPck"))) {
+		if ((slot = ti_Open(detname,"r"))) {
 			ti_Seek(7,SEEK_SET,slot);
 			//sprintf(dbgout,"Decoder file %s found, ID %s, expected %s \n",detname,ti_GetDataPtr(slot),video.codec);
 			if (!(strcmp(ti_GetDataPtr(slot),video.codec))) {
@@ -323,7 +330,7 @@ void centerxtext(char* strobj,int y) {
 	gfx_PrintStringXY(strobj,(LCD_WIDTH-w)/2,y);
 }
 
-void keywait() {
+void keywait(void) {
 	while (kb_AnyKey());  //wait until all keys are released
 }
 void waitanykey() {
@@ -355,7 +362,7 @@ void get_video_metadata(char *main_file_name) {
 	memset(&video,0,sizeof video);
 	
 	video.codec = codecname;
-	if (tmpslot = ti_Open(main_file_name,"r"))
+	if ((tmpslot = ti_Open(main_file_name,"r")))
 	{
 		ti_Seek(7,SEEK_CUR,tmpslot);           //this is where the header would be
 		ti_Read(video.codec,9,1,tmpslot);      //fetch codec namespace
@@ -380,7 +387,7 @@ void get_video_metadata(char *main_file_name) {
 
 char *getnextvideo() {
 	static char *video_metadata_header = "8CEVDaH";
-	static uint8_t *search_position = NULL;
+	static void *search_position = NULL;
 	char *variable_name;
 	
 	if (!(variable_name = ti_Detect(&search_position,video_metadata_header))) {
@@ -391,12 +398,12 @@ char *getnextvideo() {
 	return variable_name;
 }
 
-void dispsprite(void *compsprite,int x,int y) {
+void dispsprite(const void *compsprite,int x,int y) {
 	zx7_Decompress(commondata,compsprite);
 	gfx_Sprite_NoClip((gfx_sprite_t*)commondata,x,y);
 }
 
-void GUIElem(int x, int y, int w, void* csprite, content_callback callback) {
+void GUIElem(int x, int y, int w, const void* csprite, content_callback callback) {
 	//Draw outlines
 	gfx_SetColor(COLOR_DARKBLUE);
 	gfx_Rectangle_NoClip(x-1,y-1,w+3,(T_UI_DHT+1));
