@@ -98,7 +98,7 @@ Version History
 * 0.03 - Fixed a bug that prevented 4:3 video playback with the M1X2-ZX7 decoder.
 		 Also changed UI spacing in the media player for readability and made
 		 it easier to make other changes like that in the future.
-* 0.04 - Label change to verify that the new toolchain actually built.
+* 0.04 - Label change to verify that CEVidium built with the new toolchain.
 
 Known Issues
 ------------
