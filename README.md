@@ -98,6 +98,7 @@ Version History
 * 0.03 - Fixed a bug that prevented 4:3 video playback with the M1X2-ZX7 decoder.
 		 Also changed UI spacing in the media player for readability and made
 		 it easier to make other changes like that in the future.
+* 0.04 - Label change to verify that the new toolchain actually built.
 
 Known Issues
 ------------
@@ -105,6 +106,9 @@ Known Issues
   references for it for debugging purposes. You should be using BUILD2.bat
 * If you choose to modify the build to use the old codecs, encoder 4 (DECODR03)
   is known to crash.
+* You really cannot use Python 3 for this. Everything is broken and I'm
+  trying to fix it. By burning it all to the ground. And then burning the
+  ashes just to make sure.
 
 
 
