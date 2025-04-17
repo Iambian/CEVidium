@@ -5,6 +5,10 @@ Warning:
 * This will not work on the TI-84+ CSE.
 * This will not work on any TI-84+ (SE)
 
+NOTE
+----
+Apr 16, 2025: There is active work being done both in this file and in the `CEVENCODER` folder. The contents of the aforementioned items will get far worse before it'll get better. The project /should/ work the same as it used to (for varying values of "work", according to the issues tracker) during this transition, but everything should be better, if different, in the end.
+
 Motivation
 ----------
 I wanted to see Bad Apple play on my TI-84 CE.
@@ -34,8 +38,11 @@ Converting the Video
 
 Building and Sending the Video Player
 -------------------------------------
-1. If you have not installed the CE programming toolchain, download and install
-   from: https://github.com/CE-Programming/toolchain/releases
+1.  This project is built with the CE programming toolchain version `12.1`,
+    though it is possible that later versions may also build it.
+    [Click here to find instructions on installing, including links to the latest build](https://ce-programming.github.io/toolchain/static/getting-started.html#getting-started).
+    If you need a link to the releases in case something there doesn't work
+    right, [click here](https://github.com/CE-Programming/toolchain/releases).
 2. Open a command prompt in the CEVPLAY folder and type the following in order:
    * `make gfx`
    * `make`

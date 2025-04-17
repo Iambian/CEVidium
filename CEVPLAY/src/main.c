@@ -69,7 +69,7 @@
 
 
 
-#define VERSION_INFO "v0.3"
+#define VERSION_INFO "v0.4"
 #define LARGEST_SPRITE_SIZE 6000
 #define COLOR_SKYBLUE 0xBF
 #define COLOR_DARKBLUE 25
