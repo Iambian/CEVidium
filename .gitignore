@@ -10,3 +10,5 @@ CEVPLAY/bin/*
 /CEVENCODER/tools/*.pyc
 /CEVDECODER/old
 CEVPLAY/src/gfx/convimg.yaml.lst
+CEVENCODER/caches/*
+CEVENCODER/m/__pycache__/*

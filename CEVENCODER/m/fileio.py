@@ -1,8 +1,6 @@
-
+import os
 from m.util import tobytes, checkdel
 
-TI_VAR_PROG_TYPE, TI_VAR_PROTPROG_TYPE, TI_VAR_APPVAR_TYPE = (0x05,0x06,0x15)
-TI_VAR_FLAG_RAM, TI_VAR_FLAG_ARCHIVED = (0x00,0x80)
 
 def readfile(filename:str) -> bytes:
     contents = None
@@ -20,6 +18,8 @@ def writefile(filename:str, data:bytes|bytearray|str, encoding="utf-8") -> None:
         f.write(data)
 
 def export8xv(filebase:str, filedata:bytes|bytearray) -> None:
+    TI_VAR_PROG_TYPE, TI_VAR_PROTPROG_TYPE, TI_VAR_APPVAR_TYPE = (0x05,0x06,0x15)
+    TI_VAR_FLAG_RAM, TI_VAR_FLAG_ARCHIVED = (0x00,0x80)
     if not isinstance(filedata, (bytes, bytearray)):
         filedata = tobytes(filedata)
     # Add size bytes to file data as per (PROT)PROG/APPVAR data structure
@@ -49,3 +49,11 @@ def export8xv(filebase:str, filedata:bytes|bytearray) -> None:
     # Write data out to file
     writefile(f"{filebase}.8xv", h)
     return
+
+def ensuredir(dirpath):
+    if not os.path.isdir(dirpath):
+        os.makedirs(dirpath)
+
+def getfilebasename(filepath):
+    return os.path.splitext(os.path.basename(filepath))[0]
+

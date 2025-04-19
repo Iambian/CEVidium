@@ -1,4 +1,4 @@
-import os, sys, time
+import os, sys, time, struct
 
 
 #Note: This'll also flatten any embedded lists, tuples, and strings.
@@ -29,3 +29,10 @@ def checkdel(fnp:str, isdel:bool) -> bool:
         if retry < 1:
             return False
     return True
+
+def rgb888to555(rgb):
+    if isinstance(rgb, int):
+        rgb = (((rgb >> 16) & 0xFF), ((rgb >> 8) & 0xFF), ((rgb >> 0) & 0xFF))
+    return struct.pack("<H", ((rgb[0]>>3)<<10)|((rgb[1]>>3)<<5)|(rgb[2]>>3))
+
+
