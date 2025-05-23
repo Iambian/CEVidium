@@ -1,5 +1,6 @@
 {
     "C_Cpp.default.compilerPath": "c:\\CEdev\\bin\\ez80-clang.exe",
+    "python.defaultInterpreterPath": "C:\\Users\\Xethyl\\AppData\\Local\\Microsoft\\WindowsApps\\python3.exe",
     "files.associations": {
         "stdbool.h": "c",
         "graphx.h": "c"
