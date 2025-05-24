@@ -69,6 +69,9 @@ Building, Sending, and Running the Video Player
       such that no available jailbreak works. In that case, head on over to
       [Cemetech](https://www.cemetech.net/) to find out or ask for a working
       jailbreak.
+   * If the program runs but immediately quits, it's because you don't have
+      any videos that CEVidium can recognize. Send some to the calculator!
+      Here's a wonderful example containing [a dumpster fire](https://www.cemetech.net/downloads/files/2046/x2144)
 
 Copyrights and Licenses
 -----------------------
