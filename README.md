@@ -36,8 +36,13 @@ Converting the Video
    * `BUILD2.BAT -i MYVID.mp4 -e M1G4 -d`
 6. If everything worked, copy the contents of CEVENCODER/bin to your calculator.
 
-Building and Sending the Video Player
--------------------------------------
+Building and Sending the Decoders
+---------------------------------
+1. Double-click CEVDECODER/build.bat to run it.
+2. If everything worked, copy the contents of CEVDECODER/bin to your calculator.
+
+Building, Sending, and Running the Video Player
+-----------------------------------------------
 1.  This project is built with the CE programming toolchain version `12.1`,
     though it is possible that later versions may also build it.
     [Click here to find instructions on installing, including links to the latest build](https://ce-programming.github.io/toolchain/static/getting-started.html#getting-started).
@@ -47,11 +52,23 @@ Building and Sending the Video Player
    * `make gfx`
    * `make`
 3. If everything worked, copy CEVPLAY/bin/CEVIDIUM.8xp to your calculator.
-
-Building and Sending the Decoders
----------------------------------
-1. Double-click CEVDECODER/build.bat to run it.
-2. If everything worked, copy the contents of CEVDECODER/bin to your calculator.
+4. `prgmCEVIDIUM` is an assembly program. TI has made it increasingly difficult
+    to run these types of programs. You can try these steps:
+   * Run the program from the homescreen as an `Asm(` program. Find the `Asm(`
+      token from catalog by pressing `2nd`, then `0`, then pushing the `down`
+      button until you select it. Press `Enter` to copy it to the homescreen,
+      then proceed to put in the program as normal. The homescreen should read
+      `Asm(prgmCEVIDIUM` when you are done. Press `Enter` to start.
+   * If you can't find `Asm(` in the catalog, it may be because your OS version
+      is too high. In later versions of the OS, Texas Instruments removed that
+      command to prevent people from easily running assembly programs, so you'll
+      need a [jailbreak such as arTIfiCE](https://yvantt.github.io/arTIfiCE/).
+      The instructions may both vary and change without warning, so I cannot
+      copy them here.
+   * Some of the newest calculators may have had their exploits patched over
+      such that no available jailbreak works. In that case, head on over to
+      [Cemetech](https://www.cemetech.net/) to find out or ask for a working
+      jailbreak.
 
 Copyrights and Licenses
 -----------------------
