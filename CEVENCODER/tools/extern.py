@@ -445,7 +445,7 @@ class Config(object):
             print "Converting video to target dimensions"
             FFmpeg(
                 inputs  = { self.vname: '-y'},
-                outputs = { o1: '-c:v libx264 -profile:v baseline -preset medium -vf scale='+str(hres)+':'+str(vres)+':flags='+str(vflags)+' -an'},
+                outputs = { o1: '-c:v libx264 -profile:v baseline -preset medium -vf scale='+str(hres)+':'+str(vres)+':flags='+str(vflags)+' -r 30 -an'},
             ).run()
             print "Outputting individual frames to .png files"
             FFmpeg(
