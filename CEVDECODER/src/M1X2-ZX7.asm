@@ -16,6 +16,8 @@
 #DEFINE LCD_WIDTH 320
 #DEFINE LCD_HEIGHT 240
 #DEFINE VIDEO_WIDTH 144
+#DEFINE SCALE_FACTOR 2
+#DEFINE DRAWFRAME_SMC_BLOCKLEN 12
 
 #DEFINE VSEG_ARR 3
 #DEFINE VSTRUCT  6
@@ -83,7 +85,7 @@ MF_START:
 			LD DE,(IX+V_SEGS) \ ADD HL,DE \ ADD HL,DE \ ADD HL,DE \ LD (IY+VSEG_END),HL
 		;SET UP LCD HARDWARE / SCREEN BOUNDARIES
 			LD A,(IX+V_HEIGHT) \ LD (IY+F_HEIGHT),A
-			LD E,A \ LD D,2 \ MLT DE \ LD HL,LCD_HEIGHT ; (MAXHEIGHT-VIDHEIGHT)/2 = DIST
+			LD E,A \ LD D,SCALE_FACTOR \ MLT DE \ LD HL,LCD_HEIGHT ; (MAXHEIGHT-VIDHEIGHT)/2 = DIST
 			OR A \ SBC HL,DE \ SRL H \ RR  L            ; BTWN SCREEN-TOP AND VID-TOP
 			EX DE,HL                                    ; Y OFFSET IN DE
 		POP HL
@@ -186,7 +188,7 @@ _:		RLCA \ ADC HL,HL \ RRCA
 		RLCA \ ADC HL,HL
 		DJNZ -_
 		LD (IX+0),HL
-		LEA IX,IX+2
+		LEA IX,IX+SCALE_FACTOR
 		INC A
 		JR NZ,--_
 		;ADDITIONAL SMC SETUP
@@ -253,7 +255,7 @@ ofsAndLUTSetup_collect:
 	LD (sdw_smc_screenofset),HL
 	EX DE,HL
 	LD DE,df_hdraw_smc_routine
-	LD BC,12
+	LD BC,DRAWFRAME_SMC_BLOCKLEN
 	LDIR
 	RET
 ofsAndLUTSetup4bpp_renderer:
@@ -474,7 +476,7 @@ _:	LD E,A
 	JP MF_SKIP_FRAME_DRAW
 sfs_skip_8x8boxes:
 	;Out of bounds video data. Do not process. End video playback.
-	;JR $
+	JR $		;DEBUG: HALT IF INVALID VIDEO FRAME TYPE
 	POP AF
 	POP AF
 	POP IY
@@ -489,7 +491,7 @@ setDrawWindow:
 	;Set window offset
 	PUSH DE
 		LD A,L
-		LD L,2
+		LD L,SCALE_FACTOR
 		MLT HL
 sdw_smc_ymultiplier .EQU $+1
 		LD H,40
@@ -503,7 +505,7 @@ sdw_smc_xdivider .EQU $
 sdw_smc_xmaskout  .EQU $+1
 		AND %00111111
 		LD L,A
-		LD H,2
+		LD H,SCALE_FACTOR
 		MLT HL
 sdw_smc_screenofset .EQU $+2
 		LD IX,0
@@ -516,10 +518,11 @@ sdw_smc_screenofset .EQU $+2
 	LD A,E     ;Get img width
 	SBC HL,HL  
 	EX DE,HL   ;Zero out HL
-sdw_smc_wdivider .EQU $+0   ;Set frame render loop parameters
+sdw_smc_wdivider .EQU $+0	;Set frame render loop parameters
 	RRA \ RRA \ RRA ;div 8 for 1bpp. RRA RRA NOP for div 4 (2bpp), RRA NOP NOP for div 2 (4bpp)
 sdw_smc_wmaskout  .EQU $+1
 	AND %00111111
+	JR	Z,$			;DEBUG: Halt if width is zero. This causes... problems.
 	LD (df_smc_hdraw),A
 	LD E,A     ;Set adjusted width in E.
 	ADD A,A    ;
@@ -678,7 +681,6 @@ df_verticaldraw:
 ;	jr $
 df_smc_hdraw .EQU $+1
 	LD B,VIDEO_WIDTH/2
-	LD A,C
 	LD DE,FF_END
 df_horizontaldraw:
 	OR A
@@ -690,7 +692,7 @@ df_horizontaldraw:
 	LD (IX+0),L
 	LD (IX+1),H
 df_hdraw_smc_routine:
-.block 12
+.block DRAWFRAME_SMC_BLOCKLEN
 	INC IY
 	DJNZ df_horizontaldraw
 df_smc_nextrow .EQU $+1
