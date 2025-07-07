@@ -94,7 +94,35 @@ MF_START:
 		LD BC,+_
 		PUSH BC
 			JP (HL)
-_:		;SET UP TIMER HARDWARE - UNSETS POINTER TO STRUCT
+_:		;SET UP DECODER GRID
+		LD A,(IY+F_HEIGHT)
+		TST A,%00000111
+		JR Z,+_
+		SUB A,8
+		LD (sfs_8x8_vidheight),A  ;IN THE GRID ARRAY CODE. REMOVE THE ADD/SUB
+		ADD A,8
+		JR ++_
+_:		LD (sfs_8x8_vidheight),A  ;IN THE GRID ARRAY CODE. REMOVE THE ADD/SUB
+_:		TST A,%00000111 ;CHECK TO SEE IF h%8 IS NONZERO
+		JR Z,+_
+		ADD A,8         ;IF NOT, ceil() IT
+_:		AND A,%11111000
+		LD L,A
+		LD H,VIDEO_WIDTH
+		MLT HL
+		ADD HL,HL
+		ADD HL,HL  ;X4 TO MAKE /256 BY TAKING JUST H
+		LD A,H
+		LD (sfs_8x8_vidloop),A
+		RRCA \ RRCA \ RRCA  ;DIV 8 TO GET NUMBER OF BYTES TO OFFSET
+		TST A,%11100000
+		JR Z,+_         ;HOW MANY TIMES DO I HAVE TO DO ceil() ???
+		INC A
+_:		AND A,%00011111
+		JR NZ,_			;KLUDGE FOR 4:3 VIDEOS
+		LD A,%00100000  ;THIS IS A TERRIBLE HACK THERE HAS TO BE A BETTER WAY
+_:		LD (sfs_8x8_vidoffset),A
+;SET UP TIMER HARDWARE - UNSETS POINTER TO STRUCT
 		CALL resetTimer
 		;SYSTEM SET UP. START THE DECODER.
 		;------------------------------------------------------------
@@ -147,9 +175,9 @@ MF_STOP_PLAYBACK:
 	RET
 ;===================================================================================
 ; Setup subroutines
-#DEFINE NXRW1B (320*3/8)+0
-#DEFINE NXRW2B (320*3/4)+0
-#DEFINE NXRW4B (320*3/2)+0
+#DEFINE NXRW1B (320*SCALE_FACTOR/8)+0
+#DEFINE NXRW2B (320*SCALE_FACTOR/4)+0
+#DEFINE NXRW4B (320*SCALE_FACTOR/2)+0
 
 ofsAndLUTSetup1bpp:
 	LD D,40  \ MLT DE \ INC DE \ INC DE
@@ -187,7 +215,7 @@ _:		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RRCA \ RRCA
 		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL
 		DJNZ -_
 		LD (IX+0),HL
-		LEA IX,IX+3
+		LEA IX,IX+SCALE_FACTOR
 		INC A
 		JR NZ,--_
 		;ADDITIONAL SMC SETUP
@@ -213,7 +241,7 @@ _:		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ 
 		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL
 		DJNZ -_
 		LD (IX+0),HL
-		LEA IX,IX+3
+		LEA IX,IX+SCALE_FACTOR
 		INC A
 		JR NZ,--_
 		;ADDITIONAL SMC SETUP
@@ -390,40 +418,20 @@ sfs_skip_duplicateframe:
 	DJNZ sfs_skip_8x8boxes
 	;render 8x8 box grid
 	;Screen width fixed at VIDEO_WIDTH, screen height in C
-	PUSH BC
-		CALL copyPreviousFrame
-	POP BC
-	;jr $
-	LD A,8
-	LD (sfs_blockheight_smc),A
-	LD H,C   ;SAVE ORIGINAL HEIGHT
-	LD A,C   ;GET COPY OF HEIGHT
-	TST A,%00000111 ;DO ceil(h/8)*8
-	JR Z,+_
-	ADD A,8
-_:  AND A,%11111000
-	ADD A,A   ;ADDITIONALLY DO h*2
-	LD C,A
-	LD B,96*2 ;DO w*2
-	MLT BC    ;(h*2)*(w*2)/256 == (h/8)*(w/8). Results in B to do the /256
-	LD C,H    ;RESTORE ORIGINAL HEIGHT IN C
-	LD A,B    ;LET r = (h/8)*(w/8). DO ceil(r/8) FOR BITS-TO-BYTE LOOP COUNT
-	RRCA
-	RRCA
-	RRCA
-	TST A,%11100000
-	JR Z,+_
-	INC A
-_:	AND A,%00011111
-	LD DE,0
-	LD E,A
+	CALL copyPreviousFrame
+sfs_8x8_vidoffset .EQU $+1
+	LD DE,0  ;LOWEST BYTE ALWAYS WRITTEN, NO OTHERS ARE
 	LEA HL,IY+0
 	ADD IY,DE
 	LD E,D
-	LD A,C  ;ADJUST HEIGHT FOR LOOP
-	SUB A,8 ;
-	LD C,A  ;
+	LD A,8
+	LD (sfs_blockheight_smc),A
+sfs_8x8_vidloop .EQU $+1
+	LD B,0
+sfs_8x8_vidheight .EQU $+1
+	LD C,0
 	;DE = [0,0] , HL = PTR TO BITFIELD, IY = DATA STREAM, B = LOOP COUNTER
+	JR +_          ;SKIP OVER INITIAL LOOP TEST IN CASE B%8 WAS ZERO TO START WITH
 sfs_df_mainloop:
 	LD A,B
 	AND %00000111  ;IF ZERO, BIT-BYTE BOUNDS REACHED. INCREMENT HL

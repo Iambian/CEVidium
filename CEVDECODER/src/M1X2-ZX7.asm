@@ -116,7 +116,7 @@ _:		AND A,%11111000
 		LD (sfs_8x8_vidloop),A
 		RRCA \ RRCA \ RRCA  ;DIV 8 TO GET NUMBER OF BYTES TO OFFSET
 		TST A,%11100000
-		JR Z,+_
+		JR Z,+_         ;HOW MANY TIMES DO I HAVE TO DO ceil() ???
 		INC A
 _:		AND A,%00011111
 		JR NZ,_			;KLUDGE FOR 4:3 VIDEOS
@@ -175,9 +175,9 @@ MF_STOP_PLAYBACK:
 	RET
 ;===================================================================================
 ; Setup subroutines
-#DEFINE NXRW1B (320*2/8)+0
-#DEFINE NXRW2B (320*2/4)+0
-#DEFINE NXRW4B (320*2/2)+0
+#DEFINE NXRW1B (320*SCALE_FACTOR/8)+0
+#DEFINE NXRW2B (320*SCALE_FACTOR/4)+0
+#DEFINE NXRW4B (320*SCALE_FACTOR/2)+0
 
 ofsAndLUTSetup1bpp:
 	LD D,40  \ MLT DE \ INC DE \ INC DE
@@ -214,7 +214,7 @@ _:		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RRCA \ RRCA
 		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL
 		DJNZ -_
 		LD (IX+0),HL
-		LEA IX,IX+2
+		LEA IX,IX+SCALE_FACTOR
 		INC A
 		JR NZ,--_
 		;ADDITIONAL SMC SETUP
@@ -240,7 +240,7 @@ _:		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ 
 		RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL \ RLCA \ ADC HL,HL
 		DJNZ -_
 		LD (IX+0),HL
-		LEA IX,IX+2
+		LEA IX,IX+SCALE_FACTOR
 		INC A
 		JR NZ,--_
 		;ADDITIONAL SMC SETUP
@@ -434,7 +434,6 @@ sfs_8x8_vidloop .EQU $+1
 sfs_8x8_vidheight .EQU $+1
 	LD C,0
 	;DE = [0,0] , HL = PTR TO BITFIELD, IY = DATA STREAM, B = LOOP COUNTER
-	;jr $
 	JR +_          ;SKIP OVER INITIAL LOOP TEST IN CASE B%8 WAS ZERO TO START WITH
 sfs_df_mainloop:
 	LD A,B
