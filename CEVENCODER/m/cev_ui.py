@@ -162,6 +162,12 @@ class CevencoderUI:
         self.dither_checkbutton = tk.Checkbutton(self.dither_group, text="Dither", bg="lightgray", variable=self.dither_var, command=toggle_dither)
         self.dither_checkbutton.grid(row=0, column=0, padx=2, pady=2)
 
+        # Adaptive Restriction Toggle (hidden from user)
+        self.adaptive_restriction_var = tk.BooleanVar(value=True)
+        # The checkbutton is created but not packed/gridded, making it hidden.
+        # Its command is still linked to update_export_button_state for internal logic.
+        tk.Checkbutton(self.dither_group, text="Adaptive Export Restriction", bg="lightgray", variable=self.adaptive_restriction_var, command=self.update_export_button_state)
+
         # Video Name Entry and Tooltip
         self.video_name_entry = tk.Entry(self.video_info_frame, font='TkFixedFont', width=9) 
         self.video_name_entry.pack(side='left')
@@ -187,6 +193,7 @@ class CevencoderUI:
             self.video_author_entry.get()
         ), state=tk.DISABLED)
         self.export_button.pack(side='right', padx=10)
+        ToolTip(self.export_button, msg=self._get_export_tooltip_message)
         self.video_name_entry.bind("<KeyRelease>", lambda event: self.update_export_button_state())
 
         # Status Bar
@@ -196,6 +203,24 @@ class CevencoderUI:
         # Debugging init
         if DEBUG_FILE_INIT and os.path.exists(DEBUG_FILE_INIT):
             self.import_media(filepath=DEBUG_FILE_INIT)
+
+    def _get_export_tooltip_message(self):
+        messages = []
+        if self.media_file is None:
+            messages.append("Import a media file.")
+        if not self.validate_video_name(self.video_name_entry.get()):
+            messages.append("Video name must be 1-8 uppercase alphanumeric characters, first character not a digit.")
+        if self.filter_var.get() == 0:
+            messages.append("Select a filter (N/A is not allowed for export).")
+        if self.ratio_var.get() == 1:
+            messages.append("Cannot export with /1 ratio selected.")
+        if self.filter_var.get() == 5 and self.adaptive_restriction_var.get(): # 5 is the index for "Adaptive"
+            messages.append("Cannot export with 'Adaptive' filter selected (restriction enabled).")
+
+        if not messages:
+            return "Export video to a .8xv file."
+        else:
+            return "Export button disabled:\n" + "\n".join(messages)
 
     def drag_enter(self, event):
         event.widget.focus_set()
@@ -241,13 +266,20 @@ class CevencoderUI:
             self.trim_toolbar_frame.grid_remove()
 
     def update_export_button_state(self):
-        # Update export button state based on video name validity, filter selection, and media file load status.
+        # Update export button state based on video name validity, filter selection, media file load status, ratio, and adaptive restriction.
         try:
             is_valid_name = self.validate_video_name(self.video_name_entry.get())
             is_filter_selected = self.filter_var.get() != 0
             is_media_file_loaded = self.media_file is not None
+            is_ratio_one = self.ratio_var.get() == 1
+            is_adaptive_filter_selected = self.filter_var.get() == 5 # 5 is the index for "Adaptive"
+            is_adaptive_restriction_enabled = self.adaptive_restriction_var.get()
 
-            self.export_button.config(state=tk.NORMAL if is_valid_name and is_filter_selected and is_media_file_loaded else tk.DISABLED)
+            can_export = is_valid_name and is_filter_selected and is_media_file_loaded and not is_ratio_one
+            if is_adaptive_filter_selected and is_adaptive_restriction_enabled:
+                can_export = False
+
+            self.export_button.config(state=tk.NORMAL if can_export else tk.DISABLED)
         except:
             pass
 
