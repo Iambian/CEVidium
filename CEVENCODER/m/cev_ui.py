@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, filedialog, Toplevel, Label
+from tkinter import ttk, filedialog, Toplevel, Label, Tk
 from tkinter.ttk import Progressbar
 from tktooltip import ToolTip
 from PIL import Image, ImageTk
@@ -17,17 +17,24 @@ from . import cev_in, cev_proc, cev_out
 DEBUG_FILE_INIT = "tests/fdumpster.mp4"
 DEBUG_FILE_INIT = None
 
+# Debug variable to immediately show the trim toolbar on startup
+DEBUG_INSPECT_TRIM_TOOLBAR = False
+
 def _flatten(iterable):
     return list(chain.from_iterable(iterable))
 
 class CevencoderUI:
     def __init__(self, master):
-        self.master = master
+        self.master:TkinterDnD.Tk = master
         master.title("CEVidium Media Encoder")
 
-        self.media_file = None
+        self.media_file:cev_in.MediaFile = None
         self.current_frame = None
         self.is_playing = False
+        self.cevideolist_cache: dict[cev_proc.Cevideomode, cev_proc.Cevideolist] = {}
+        self.active_cevideolist: cev_proc.Cevideolist = None
+        self.status_update_job = None
+        self.sync_gamma_var = tk.BooleanVar(value=True)
 
         # Row layout constants
         VIDEOFRAME_ROW = 1
@@ -64,36 +71,54 @@ class CevencoderUI:
         # Toolbar Areas
         self.toolbar_frame = tk.Frame(master, height=50, bg="lightgray")
         self.toolbar_frame.grid(row=MEDIA_TOOLBAR_ROW, column=0, columnspan=5, sticky="ew")
+        self.toolbar_frame.grid_columnconfigure(4, weight=1) # Configure column 4 to expand
+
         self.trim_toolbar_frame = tk.Frame(master, height=50, bg="lightgray")
         self.trim_toolbar_frame.grid(row=MEDIA_TOOLBAR_ROW, column=0, columnspan=5, sticky="ew")
         self.trim_toolbar_frame.grid_remove()
 
+
+        # Trim Toolbar Groups
+        TRIM_TOOLBAR_RESET_GROUP = 0
+        TRIM_TOOLBAR_FRAME_BOUNDARY_GROUP = 1   #wide. uses 2 slots
+        TRIM_TOOLBAR_MEMORY_LIMIT_GROUP = 3
+        TRIM_TOOLBAR_EXPORT_GROUP = 4
+
         # Trim Toolbar Group
-        TRIM_TOOLBAR_GROUP_1 = 0
         self.trim_toolbar_group = tk.Frame(self.trim_toolbar_frame, bg="lightgray")
-        self.trim_toolbar_group.grid(row=0, column=TRIM_TOOLBAR_GROUP_1, padx=5)
+        self.trim_toolbar_group.grid(row=0, column=TRIM_TOOLBAR_RESET_GROUP, padx=5)
         self.trim_toolbar_toggle_button = tk.Button(self.trim_toolbar_group, text="▲", width=2, command=self.toggle_toolbars)
         self.trim_toolbar_toggle_button.grid(row=0, column=0, padx=2, pady=2)
-        self.clear_button = tk.Button(self.trim_toolbar_group, text="Clear", width=5, command=self.clear_button_action)
-        self.clear_button.grid(row=0, column=1, padx=2, pady=2)
+        self.clear_button = tk.Button(self.trim_toolbar_group, text="Reset Limits", width=10, command=self.clear_button_action)
+        self.clear_button.grid(row=0, column=1, columnspan=2, padx=2, pady=2)
 
-        # Start Frame Group
-        self.start_frame_group = tk.Frame(self.trim_toolbar_frame, bg="lightgray")
-        self.start_frame_group.grid(row=0, column=2, padx=5)
-        self.start_frame_tooltip = ToolTip(self.start_frame_group, msg="Select which video frame to start encoding at.")
-        self.set_button = tk.Button(self.start_frame_group, text="Set", width=3, command=self.set_spinbox_value)
-        self.set_button.grid(row=0, column=0, padx=2, pady=2)
-        self.spinbox = tk.Spinbox(self.start_frame_group, from_=0, to=100, width=5, command=lambda: self.set_spinbox_value(value=self.spinbox.get(), from_spinbox=True), state='readonly')
-        self.spinbox.grid(row=0, column=1, padx=2, pady=2)
-
+        # Frame Boundary Group
+        self.frame_boundary_group = tk.Frame(self.trim_toolbar_frame, bg="lightgray")
+        self.frame_boundary_group.grid(row=0, column=TRIM_TOOLBAR_FRAME_BOUNDARY_GROUP, columnspan=2, padx=3)
+        # Frame Bound Start Subgroup
+        self.frame_boundary_start_group = tk.Frame(self.frame_boundary_group)
+        self.frame_boundary_start_group.pack(padx=4, fill='x', side='left')
+        ToolTip(self.frame_boundary_start_group, msg="Set video starting frame. You may input the frame number directly, or use the video slider to find a frame then push the set button to set the frame number.")
+        self.frame_boundary_start_set = tk.Button(self.frame_boundary_start_group, width=3, text="Set", command=lambda: self.set_frame_spinbox_value("start"))
+        self.frame_boundary_start_set.pack(side='left')
+        self.frame_boundary_start_spinbox = tk.Spinbox(self.frame_boundary_start_group, from_=0, to=100, width=5, command=lambda: self.set_frame_spinbox_value("start", value=self.frame_boundary_start_spinbox.get(), from_spinbox=True), state='readonly')
+        self.frame_boundary_start_spinbox.pack(side='right')
+        # Frame Bound End Subgroup
+        self.frame_boundary_end_group = tk.Frame(self.frame_boundary_group)
+        self.frame_boundary_end_group.pack(padx=4, fill='x', side='right')
+        ToolTip(self.frame_boundary_end_group, msg="Set video ending frame. You may input the frame number directly, or use the video slider to find a frame then push the set button to set the frame number. This number can also be autofilled by setting a memory limit. Setting a memory limit also sets this number. You should set a starting number before setting this number.")
+        self.frame_boundary_end_set = tk.Button(self.frame_boundary_end_group, width=3, text="Set", command=lambda: self.set_frame_spinbox_value("end"))
+        self.frame_boundary_end_set.pack(side='left')
+        self.frame_boundary_end_spinbox = tk.Spinbox(self.frame_boundary_end_group, from_=0, to=100, width=5, command=lambda: self.set_frame_spinbox_value("end", value=self.frame_boundary_end_spinbox.get(), from_spinbox=True), state='readonly')
+        self.frame_boundary_end_spinbox.pack(side='right')
         # Memory Limit Group
         self.memory_limit_group = tk.Frame(self.trim_toolbar_frame, bg="lightgray")
-        self.memory_limit_group.grid(row=0, column=3, padx=7)
+        self.memory_limit_group.grid(row=0, column=TRIM_TOOLBAR_MEMORY_LIMIT_GROUP, padx=7)
         self.kb_label = tk.Label(self.memory_limit_group, text="KB")
-        self.kb_label.grid(row=0, column=0, padx=0, pady=2)
+        self.kb_label.grid(row=0, column=1, padx=0, pady=2)
         self.memory_limit_textvar = tk.StringVar()
-        self.memory_limit_input = tk.Entry(self.memory_limit_group, width=5, textvariable=self.memory_limit_textvar)
-        self.memory_limit_input.grid(row=0, column=1, padx=0, pady=2)
+        self.memory_limit_input = tk.Entry(self.memory_limit_group, justify='right', width=5, textvariable=self.memory_limit_textvar)
+        self.memory_limit_input.grid(row=0, column=0, padx=0, pady=2)
         self.memory_limit_input.insert(0, "0")
         memory_limit_tooltip_text = "Input memory limit (in KB). The encoder will estimate the maximum length of the video based on encoding settings and memory limit. Set this to 0 to disable limits"
         ToolTip(self.kb_label, msg=memory_limit_tooltip_text)
@@ -107,12 +132,15 @@ class CevencoderUI:
         MAIN_TOOLBAR_FILTER_GROUP = 2
         MAIN_TOOLBAR_DITHER_GROUP = 3
 
+        # Color Settings Button
+        self.color_settings_button = tk.Button(self.toolbar_frame, text="⚙️", command=self.open_color_settings_modal)
+        self.color_settings_button.grid(row=0, column=4, padx=2, pady=2, sticky="e") # Column 4 for right alignment
+
         # Import Media Group
         self.import_media_group = tk.Frame(self.toolbar_frame, bg="lightgray")
         self.import_media_group.grid(row=0, column=MAIN_TOOLBAR_IMPORT_GROUP, padx=5)
-        self.toolbar_toggle_button = tk.Button(self.import_media_group, text="▼", width=2, command=self.toggle_toolbars, state=tk.DISABLED)
+        self.toolbar_toggle_button = tk.Button(self.import_media_group, text="▼", width=2, command=self.toggle_toolbars)
         self.toolbar_toggle_button.grid(row=0, column=0, padx=2, pady=2)
-        self.toolbar_toggle_button_tooltip = ToolTip(self.toolbar_toggle_button, msg="Import a media file to enable this feature.")
         self.import_button = tk.Button(self.import_media_group, text="Import Media", command=self.import_media)
         self.import_button.grid(row=0, column=1, padx=2, pady=2)
 
@@ -123,6 +151,7 @@ class CevencoderUI:
         self.ratio_buttons = {}
         def set_ratio(ratio):
             self.ratio_var.set(ratio)
+            self.update_export_button_state()
             for r, button in self.ratio_buttons.items():
                 button.config(relief=tk.SUNKEN if r == ratio else tk.RAISED)
             self.update_frame(self.frame_slider.get())
@@ -163,7 +192,7 @@ class CevencoderUI:
         self.dither_checkbutton.grid(row=0, column=0, padx=2, pady=2)
 
         # Adaptive Restriction Toggle (hidden from user)
-        self.adaptive_restriction_var = tk.BooleanVar(value=True)
+        self.adaptive_restriction_var = tk.BooleanVar(value=False)
         # The checkbutton is created but not packed/gridded, making it hidden.
         # Its command is still linked to update_export_button_state for internal logic.
         tk.Checkbutton(self.dither_group, text="Adaptive Export Restriction", bg="lightgray", variable=self.adaptive_restriction_var, command=self.update_export_button_state)
@@ -195,6 +224,7 @@ class CevencoderUI:
         self.export_button.pack(side='right', padx=10)
         ToolTip(self.export_button, msg=self._get_export_tooltip_message)
         self.video_name_entry.bind("<KeyRelease>", lambda event: self.update_export_button_state())
+        self.toolbar_toggle_button_tooltip = ToolTip(self.toolbar_toggle_button, msg=self._get_toolbar_toggle_tooltip_message)
 
         # Status Bar
         self.status_bar = tk.Label(master, text="Ready", bd=1, relief=tk.SUNKEN, anchor=tk.W)
@@ -203,6 +233,13 @@ class CevencoderUI:
         # Debugging init
         if DEBUG_FILE_INIT and os.path.exists(DEBUG_FILE_INIT):
             self.import_media(filepath=DEBUG_FILE_INIT)
+        
+        self.update_export_button_state() # Set initial state of buttons
+
+        # Ensure trim toolbar is visible if debug flag is set, overriding other initializations
+        if DEBUG_INSPECT_TRIM_TOOLBAR:
+            self.toolbar_frame.grid_remove()
+            self.trim_toolbar_frame.grid()
 
     def _get_export_tooltip_message(self):
         messages = []
@@ -221,6 +258,24 @@ class CevencoderUI:
             return "Export video to a .8xv file."
         else:
             return "Export button disabled:\n" + "\n".join(messages)
+
+    def _get_toolbar_toggle_tooltip_message(self):
+        messages = []
+        if self.media_file is None:
+            messages.append("Import a media file.")
+        if not self.validate_video_name(self.video_name_entry.get()):
+            messages.append("Video name must be 1-8 uppercase alphanumeric characters, first character not a digit.")
+        if self.filter_var.get() == 0:
+            messages.append("Select a filter (N/A is not allowed for export).")
+        if self.ratio_var.get() == 1:
+            messages.append("Cannot use trim toolbar with /1 ratio selected.")
+        if self.filter_var.get() == 5 and self.adaptive_restriction_var.get(): # 5 is the index for "Adaptive"
+            messages.append("Cannot use trim toolbar with 'Adaptive' filter selected (restriction enabled).")
+
+        if not messages:
+            return "Switch to trim toolbar."
+        else:
+            return "Trim toolbar button disabled:\n" + "\n".join(messages)
 
     def drag_enter(self, event):
         event.widget.focus_set()
@@ -241,7 +296,11 @@ class CevencoderUI:
         return 'break'
 
     def clear_button_action(self):
-        self.set_spinbox_value(0)
+        self.set_frame_spinbox_value("start", 0)
+        if self.media_file:
+            self.set_frame_spinbox_value("end", self.media_file.get_frame_count() - 1)
+        else:
+            self.set_frame_spinbox_value("end", 0) # Reset to 0 if no media file
         self.memory_limit_input.delete(0, tk.END)
         self.memory_limit_input.insert(0, "0")
             
@@ -280,6 +339,12 @@ class CevencoderUI:
                 can_export = False
 
             self.export_button.config(state=tk.NORMAL if can_export else tk.DISABLED)
+            self.toolbar_toggle_button.config(state=tk.NORMAL if can_export else tk.DISABLED)
+
+            # If the toolbar toggle button becomes disabled and the trim toolbar is active, switch back to main.
+            # This logic should be skipped if DEBUG_INSPECT_TRIM_TOOLBAR is True
+            if not DEBUG_INSPECT_TRIM_TOOLBAR and not can_export and self.trim_toolbar_frame.winfo_ismapped():
+                self.toggle_toolbars()
         except:
             pass
 
@@ -367,12 +432,28 @@ class CevencoderUI:
 
     def _post_import_success(self):
         self.frame_slider.config(from_=0, to=self.media_file.get_frame_count() - 1)
-        self.update_frame(0)
         self.status_bar.config(text="Media loaded successfully.")
         self.toolbar_toggle_button.config(state=tk.NORMAL)
         self.update_export_button_state()
-        self.toolbar_toggle_button_tooltip.destroy()
-        self.spinbox.configure(to=self.media_file.get_frame_count() - 1)
+        self.frame_boundary_start_spinbox.config(to=self.media_file.get_frame_count() - 1)
+        self.frame_boundary_end_spinbox.config(to=self.media_file.get_frame_count() - 1)
+        self.set_frame_spinbox_value("end", self.media_file.get_frame_count() - 1) # Set end frame to last frame
+
+        # Clear existing Cevideolist objects and create a new one for the current mode
+        for cev_list in self.cevideolist_cache.values():
+            cev_list.cancel()
+        self.cevideolist_cache.clear()
+
+        try:
+            current_mode = cev_proc.Cevideomode(self.ratio_var.get(), self.filter_var.get(), self.dither_var.get())
+            new_cevideolist = cev_proc.Cevideolist(self.media_file, current_mode)
+            self.cevideolist_cache[current_mode] = new_cevideolist
+            self.active_cevideolist = new_cevideolist
+            self.active_cevideolist.start_frame_build()
+            self._start_buffering_status_update()
+        except:
+            pass
+        self.update_frame(0)
 
     def _post_import_failure(self, e):
         error_message = f"Error loading media: {e}"
@@ -398,9 +479,55 @@ class CevencoderUI:
             if not frame:
                 return
 
-            # Process frame with selected filter and dither settings
-            cevmode = cev_proc.Cevideomode(self.ratio_var.get(), self.filter_var.get(), self.dither_var.get())
-            processed_frame = cev_proc.Cevideoframe.processframe(frame, cevmode)
+            # Check if color settings have changed
+            if cev_proc.Cevideomode.is_dirty:
+                for cev_list in self.cevideolist_cache.values():
+                    cev_list.cancel()
+                self.cevideolist_cache.clear()
+                self.active_cevideolist = None
+                cev_proc.Cevideomode.is_dirty = False
+                self._stop_buffering_status_update()
+
+            # Get current mode settings
+            current_mode = None # Initialize current_mode outside try-except
+            try:
+                current_mode = cev_proc.Cevideomode(self.ratio_var.get(), self.filter_var.get(), self.dither_var.get())
+
+                # If active_cevideolist exists and its mode is different, pause it
+                if self.active_cevideolist and self.active_cevideolist.mode != current_mode:
+                    self.active_cevideolist.pause_frame_build()
+                    self.active_cevideolist = None # Clear active_cevideolist as it's no longer current
+
+                # Check if Cevideolist for current mode exists in cache
+                if current_mode in self.cevideolist_cache:
+                    self.active_cevideolist = self.cevideolist_cache[current_mode]
+                    if not self.active_cevideolist.is_complete():
+                        self.active_cevideolist.resume_frame_build()
+                else:
+                    # Create new Cevideolist if not in cache
+                    new_cevideolist = cev_proc.Cevideolist(self.media_file, current_mode)
+                    self.cevideolist_cache[current_mode] = new_cevideolist
+                    self.active_cevideolist = new_cevideolist
+                    self.active_cevideolist.start_frame_build()
+                    self._start_buffering_status_update()
+            except ValueError: # Removed 'as e' and error reporting
+                self.active_cevideolist = None
+                self._stop_buffering_status_update()
+                # No status bar update or console print here, as per user feedback.
+                # Existing UI safeguards handle reporting.
+
+            # Attempt to get processed frame from active_cevideolist, otherwise process on the fly
+            processed_frame = None
+            if self.active_cevideolist and self.active_cevideolist.is_complete():
+                # Ensure frame_number is within bounds of the buffered list
+                if 0 <= int(frame_number) < len(self.active_cevideolist.frame_list):
+                    buffered_frame_obj = self.active_cevideolist.frame_list[int(frame_number)]
+                    if buffered_frame_obj:
+                        processed_frame = buffered_frame_obj.processed_frame
+            
+            if not processed_frame:
+                # Fallback to on-the-fly processing if not buffered or not yet available
+                processed_frame = cev_proc.Cevideoframe.processframe(frame, current_mode)
 
             # Scale and center image on canvas
             self.current_frame = processed_frame
@@ -434,9 +561,13 @@ class CevencoderUI:
             self.is_playing = not self.is_playing
             if self.is_playing:
                 self.play_pause_button.config(text="Pause")
-                if self.media_file and int(self.frame_slider.get()) == self.media_file.get_frame_count() - 1:
-                    self.frame_slider.set(0)  # Reset to the beginning
-                    self.update_frame(0)  # Update the frame
+                start_frame = int(self.frame_boundary_start_spinbox.get())
+                end_frame = int(self.frame_boundary_end_spinbox.get())
+                current_frame = int(self.frame_slider.get())
+
+                if current_frame >= end_frame or current_frame < start_frame:
+                    self.frame_slider.set(start_frame)  # Reset to start frame
+                    self.update_frame(start_frame)  # Update the frame
                 self.play_video()
             else:
                 self.play_pause_button.config(text="Play")
@@ -444,7 +575,8 @@ class CevencoderUI:
     def play_video(self):
         if self.media_file and self.is_playing:
             current_frame_number = self.frame_slider.get()
-            if current_frame_number < self.media_file.get_frame_count() - 1:
+            end_frame = int(self.frame_boundary_end_spinbox.get())
+            if current_frame_number < end_frame:
                 self.frame_slider.set(current_frame_number + 1)
                 self.update_frame(current_frame_number + 1)
                 self.master.after(30, self.play_video)  # Adjust delay for desired frame rate
@@ -460,38 +592,178 @@ class CevencoderUI:
         if folder_path:
             self.status_bar.config(text="Exporting video...")
             try:
-                mode = cev_proc.Cevideomode(self.ratio_var.get(), self.filter_var.get(), self.dither_var.get())
-                cev_list = cev_proc.Cevideolist(self.media_file, mode)
-                cev_list.wait_for_completion()
-                cev_out.export_cev_files(cev_list, folder_path, video_name, video_title, video_author)
+                # Ensure the active_cevideolist is fully built before attempting to trim and export
+                if not self.active_cevideolist or not self.active_cevideolist.is_complete():
+                    self.status_bar.config(text="Error: Video buffering not complete. Please wait.")
+                    return
+
+                start_frame = int(self.frame_boundary_start_spinbox.get())
+                end_frame = int(self.frame_boundary_end_spinbox.get())
+                
+                # Create a new Cevideolist representing only the trimmed portion
+                # The from_frame_subset method expects an inclusive end frame, so we pass end_frame - 1
+                trimmed_cevideolist = cev_proc.Cevideolist.from_frame_subset(self.active_cevideolist, start_frame, end_frame - 1)
+
+                if trimmed_cevideolist is None:
+                    self.status_bar.config(text="Error: Could not create trimmed video list for export.")
+                    return
+
+                self._stop_buffering_status_update() # Stop status updates during export
+                # No need to wait_for_completion on trimmed_cevideolist as it's already built from a complete list
+                cev_out.export_cev_files(trimmed_cevideolist, folder_path, video_name, video_title, video_author)
                 self.status_bar.config(text=f"Video exported to {folder_path}")
+                self._stop_buffering_status_update() # Ensure it's stopped after export
             except Exception as e:
                 error_message = f"Error exporting video: {e}"
                 self.status_bar.config(text=error_message)
                 print(error_message)
                 traceback.print_exc()
 
-    def set_spinbox_value(self, value=None, from_spinbox=False):
+    def set_frame_spinbox_value(self, boundary_type, value=None, from_spinbox=False):
+        if not self.media_file:
+            return
+
+        if boundary_type == "start":
+            spinbox = self.frame_boundary_start_spinbox
+        elif boundary_type == "end":
+            spinbox = self.frame_boundary_end_spinbox
+        else:
+            return
+
         if value is None:
             value = self.frame_slider.get()
 
         if not from_spinbox:
-            self.spinbox.configure(state="normal")
+            spinbox.config(state="normal")
 
-        self.spinbox.delete(0, tk.END)
-        self.spinbox.insert(0, value)
+        spinbox.delete(0, tk.END)
+        spinbox.insert(0, value)
 
         if not from_spinbox:
-            self.spinbox.configure(state="readonly")
+            spinbox.config(state="readonly")
 
         if from_spinbox:
             try:
                 frame_number = int(value)
-                if 0 <= frame_number <= self.media_file.get_frame_count() - 1:
+                if 0 <= frame_number < self.media_file.get_frame_count():
                     self.frame_slider.set(frame_number)
                     self.update_frame(frame_number)
             except ValueError:
                 pass
+
+    def open_color_settings_modal(self):
+        modal = Toplevel(self.master)
+        modal.title("Color Settings")
+        modal.transient(self.master)
+        modal.grab_set()
+        modal.resizable(False, False)
+
+        # Center the modal over the main window
+        self.master.update_idletasks()
+        x = self.master.winfo_x() + (self.master.winfo_width() // 2) - (modal.winfo_reqwidth() // 2)
+        y = self.master.winfo_y() + (self.master.winfo_height() // 2) - (modal.winfo_reqheight() // 2)
+        modal.geometry(f"+{x}+{y}")
+
+        # Brightness Slider
+        brightness_frame = tk.Frame(modal)
+        brightness_frame.pack(pady=5, padx=10, fill=tk.X)
+        tk.Label(brightness_frame, text="Brightness:").grid(row=0, column=0, sticky="w")
+        self.brightness_slider = tk.Scale(brightness_frame, from_=0.0, to=2.0, resolution=0.01, orient=tk.HORIZONTAL, length=200)
+        self.brightness_slider.set(cev_proc.Cevideomode.brightness())
+        self.brightness_slider.grid(row=0, column=1, sticky="ew")
+        brightness_frame.grid_columnconfigure(1, weight=1)
+
+        # Gamma Sliders
+        gamma_frame = tk.Frame(modal)
+        gamma_frame.pack(pady=5, padx=10, fill=tk.X)
+        gamma_frame.grid_columnconfigure(0, weight=0) # Column for labels, no expansion
+        gamma_frame.grid_columnconfigure(1, weight=1) # Column for sliders, expands
+
+        tk.Label(gamma_frame, text="Gamma (R, G, B):").grid(row=0, column=0, sticky="w")
+
+        # Add Sync Checkbox
+        self.sync_gamma_checkbutton = tk.Checkbutton(gamma_frame, text="Sync", variable=self.sync_gamma_var)
+        self.sync_gamma_checkbutton.grid(row=0, column=1, sticky="e", padx=5)
+
+        gamma_values = cev_proc.Cevideomode.gamma()
+        self.gamma_sliders = []
+        colors = ["Red", "Green", "Blue"]
+        for i, color in enumerate(colors):
+            tk.Label(gamma_frame, text=f"{color}:").grid(row=i+1, column=0, sticky="w")
+            slider = tk.Scale(gamma_frame, from_=0.0, to=2.0, resolution=0.01, orient=tk.HORIZONTAL, length=150, command=lambda val, idx=i: self._on_gamma_change(idx, float(val)))
+            slider.set(gamma_values[i])
+            slider.grid(row=i+1, column=1, sticky="ew")
+            self.gamma_sliders.append(slider)
+
+        # OK and Cancel buttons
+        button_frame = tk.Frame(modal)
+        button_frame.pack(pady=10)
+
+        def apply_settings():
+            cev_proc.Cevideomode.brightness(self.brightness_slider.get())
+            new_gamma = [s.get() for s in self.gamma_sliders]
+            cev_proc.Cevideomode.gamma(new_gamma)
+            modal.destroy()
+            self.update_frame(self.frame_slider.get()) # Update preview with new settings
+
+        def cancel_settings():
+            modal.destroy()
+
+        # Store initial values for reset
+        initial_brightness = cev_proc.Cevideomode.brightness()
+        initial_gamma = list(cev_proc.Cevideomode.gamma()) # Create a copy
+
+        def reset_settings():
+            self.brightness_slider.set(initial_brightness)
+            for i, slider in enumerate(self.gamma_sliders):
+                slider.set(initial_gamma[i])
+
+        ok_button = tk.Button(button_frame, text="OK", command=apply_settings, width=10)
+        ok_button.pack(side=tk.LEFT, padx=5)
+        reset_button = tk.Button(button_frame, text="Reset", command=reset_settings, width=10)
+        reset_button.pack(side=tk.LEFT, padx=5) # Pack next to OK
+        cancel_button = tk.Button(button_frame, text="Cancel", command=cancel_settings, width=10)
+        cancel_button.pack(side=tk.RIGHT, padx=5)
+
+        modal.update_idletasks() # Recalculate position after widgets are packed
+        x = self.master.winfo_x() + (self.master.winfo_width() // 2) - (modal.winfo_width() // 2)
+        y = self.master.winfo_y() + (self.master.winfo_height() // 2) - (modal.winfo_height() // 2)
+        modal.wait_window(modal) # Make modal blocking
+
+    def _on_gamma_change(self, changed_slider_index, new_value):
+        if self.sync_gamma_var.get():
+            for i, slider in enumerate(self.gamma_sliders):
+                if i != changed_slider_index:
+                    slider.set(new_value)
+
+    def _start_buffering_status_update(self):
+        self._stop_buffering_status_update() # Ensure no previous job is running
+        self._update_buffering_status()
+        self.status_update_job = self.master.after(1000, self._start_buffering_status_update) # Update every 1 second
+
+    def _stop_buffering_status_update(self):
+        if self.status_update_job:
+            self.master.after_cancel(self.status_update_job)
+            self.status_update_job = None
+
+    def _update_buffering_status(self):
+        if self.active_cevideolist:
+            if self.active_cevideolist.is_build_thread_running() and not self.active_cevideolist.is_complete():
+                current, total = self.active_cevideolist.get_build_progress()
+                if total > 0:
+                    progress_percentage = (current / total) * 100
+                    self.status_bar.config(text=f"Buffering: {current}/{total} frames ({progress_percentage:.1f}%)")
+                else:
+                    self.status_bar.config(text="Buffering: Initializing...")
+            elif self.active_cevideolist.is_complete():
+                self.status_bar.config(text="Buffering complete.")
+                self._stop_buffering_status_update()
+            else:
+                self.status_bar.config(text="Ready")
+                self._stop_buffering_status_update()
+        else:
+            self.status_bar.config(text="Ready")
+            self._stop_buffering_status_update()
 
 def main():
     root = TkinterDnD.Tk()

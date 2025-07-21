@@ -86,7 +86,7 @@ def export_cev_files(cev_list: 'cev_proc.Cevideolist', folderpath: str, filename
     Exports the Cevideolist data to CEVidium metadata and data files.
 
     Args:
-        cev_list: An initialized Cevideolist object.
+        cev_list: An initialized Cevideolist object (which now represents the trimmed subset).
         folderpath: The path to the folder where the metadata and data files go.
         filename: The base filename for the metadata and data files.
         video_title: The video title string.
@@ -95,11 +95,14 @@ def export_cev_files(cev_list: 'cev_proc.Cevideolist', folderpath: str, filename
     if not cev_list.is_finished:
         raise ValueError("Cevideolist is not finished initializing.")
 
-    if not cev_list.is_compressed:
-        encoded_segments = cev_list.collect_encoded_frames()
-        def dummy_callback(current, total):
-            pass
-        compressed_data = cev_list.compress_encoded_segments(encoded_segments, dummy_callback)
+    # The cev_list passed here is already the trimmed subset, so no need to slice again.
+    frames_to_export = cev_list.frame_list
+
+    # Always re-compress for export to ensure accurate size and fresh data
+    encoded_segments = cev_list.collect_encoded_frames(frames_to_export)
+    def dummy_callback(current, total):
+        pass
+    compressed_data = cev_list.compress_encoded_segments(encoded_segments, dummy_callback)
 
     field_data_list = cev_list.build_field_data(compressed_data)
     concatenated_bytearrays, entry_counts = cev_list.concatenate_field_data(field_data_list)
@@ -116,10 +119,10 @@ def export_cev_files(cev_list: 'cev_proc.Cevideolist', folderpath: str, filename
     bit_depth_code = int(cev_list.mode.filterui) - 1
     frame_rate = 30
 
-    if not cev_list.frame_list:
+    if not frames_to_export:
         raise ValueError("Frame list must be populated with frames.")
 
-    width, height = cev_list.frame_list[0].processed_frame.size
+    width, height = frames_to_export[0].processed_frame.size
     frames_per_field = cev_list.mode.frames_per_segment
 
     metadata_header = bytearray(b"8CEVDaH")
@@ -148,3 +151,10 @@ def export_cev_files(cev_list: 'cev_proc.Cevideolist', folderpath: str, filename
         data_file_data = data_header + field_data   #Aside from the header, the file's been preconstructed. No field headers here.
 
         export8xv(folderpath, data_filename, bytes(data_file_data))
+    
+    # Print compression ratio for debug purposes
+    if cev_list._total_uncompressed_size > 0:
+        compression_ratio = (cev_list._total_compressed_size / cev_list._total_uncompressed_size) * 100
+        print(f"Export Compression Ratio: {compression_ratio:.2f}% (Compressed: {cev_list._total_compressed_size} bytes, Uncompressed: {cev_list._total_uncompressed_size} bytes)")
+    else:
+        print("Export Compression Ratio: N/A (Uncompressed size is 0 bytes for exported segment)")

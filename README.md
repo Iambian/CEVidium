@@ -7,12 +7,11 @@ Warning:
 
 NOTE
 ----
-July 7, 2025: I swear, I didn't intend to take THIS long to do the job.
-Any possible excuse that I could make would make this seem even worse, which
-you'll fully understand when you hit the area with disclaimers. Heck, it's
-not even complete. ███ suggested that I put out a "Minimum Viable Product"
-as fast as possible. There isn't even feature parity. It just makes similar
-sounding noises.
+July 21, 2025: Ok. Encoder parity has been reached, as best as I can tell. At
+least for the capabilities called for in toolkit2.py. Thing is, the adaptive
+palette selection algorithm just isn't meant for video objects. Never was.
+That's the focus of the work going forward. Also, UI now wants more libraries,
+even though they don't use them yet. Reread the dependencies section if needed.
 
 Motivation
 ----------
@@ -38,6 +37,8 @@ package installation.*
   * numpy
   * tktooltip
   * tkinterdnd2
+  * scikit-learn
+  * scikit-image
 
 **Using the Converter**
 * If using the command-line tool (`BUILD2.bat`)
@@ -49,6 +50,20 @@ package installation.*
     the flags that you want. For example, if your input video is MYVID.mp4 and you
     wanted to use the 96-by-X 4 level grayscale encoding with dithering:
     * `BUILD2.BAT -i MYVID.mp4 -e M1G4 -d`
+    Available encoding formats used with the -e switch:
+    * `M1B1` - 96*N x3 scaling, 1bpp color (black/white)
+    * `M1G2` - 96*N x3 scaling, 2bpp color (black/white/lgray/dgray)
+    * `M1G4` - 96*N x3 scaling, 4bpp color (black/white/ 14 grays)
+    * `M1C4` - 96*N x3 scaling, 4bpp color (4 shades, 6 primaries, 6 secondaries)
+    * `M1A4` - 96*N x3 scaling, 4bpp color (15 color adaptive palette)
+    * `M2B1` - 144*N x2 scaling, 1bpp color (black/white)
+    * `M2G2` - 144*N x2 scaling, 2bpp color (black/white/lgray/dgray)
+    * `M2G4` - 144*N x2 scaling, 4bpp color (black/white/ 14 grays)
+    * `M2C4` - 144*N x2 scaling, 4bpp color (4 shades, 6 primaries, 6 secondaries)
+    * `M2A4` - 144*N x2 scaling, 4bpp color (15 color adaptive palette)
+    Note that some of the information produced by its usage text is incorrect and
+    will not be fixed anytime soon. If any information above contradicts the utility,
+    assume that the text in this readme is correct.
   6. If everything worked, copy the contents of CEVENCODER/bin to your calculator.
 * If using the GUI (`main.py`)
   1. Open a command prompt in the CEVENCODER folder.
@@ -164,6 +179,9 @@ Known Issues
 * The shiny new GUI encoder also sometimes mysteriously screws up. I ran into
   a problem importing a video. I "solved" it by closing the app and trying to
   do the same thing again. Intermittent problems, yeh?
+* The rewind feature in the decoders aren't known to work properly. Getting that
+  to work properly is encoder-dependant and involves starting each encoded
+  segment with a keyframe. I... uh. Probably should make that an option.
 
 
 

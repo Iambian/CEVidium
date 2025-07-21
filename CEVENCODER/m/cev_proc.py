@@ -125,11 +125,11 @@ class Cevideomode(object):
         filter = self.filter
         frames_per_segment = False
         if scale == 2:
-            colorfiltertoframes = {1:20, 2:10, 3:5, 4:5}
+            colorfiltertoframes = {1:20, 2:10, 3:5, 4:5, 5:5}
             if colorfilter in colorfiltertoframes:
                 frames_per_segment = colorfiltertoframes[colorfilter]
         elif scale == 3:
-            colorfiltertoframes = {1:30, 2:15, 3:10, 4:10}
+            colorfiltertoframes = {1:30, 2:15, 3:10, 4:10, 5:10}
             if colorfilter in colorfiltertoframes:
                 frames_per_segment = colorfiltertoframes[colorfilter]
         self.frames_per_segment = frames_per_segment
@@ -193,7 +193,7 @@ class Cevideoframe:
     PARTIAL_FRAME = 0x02
     DUPLICATE_FRAME = 0x03
     GRID_FRAME = 0x04
-
+    END_OF_VIDEO_FRAME_SIZE = 1 # Define the size of the END_OF_VIDEO frame
     def __init__(self, mode: Cevideomode|tuple|list|None, current_frame: Image.Image|tuple, previous_frame: Optional["Cevideoframe"]):
         ''' Special notes: current_frame must be the original frame that videoinput.MediaFile provides.
             Any image processing that the UI did apart from this class is strictly for show.
@@ -205,13 +205,22 @@ class Cevideoframe:
             # there is no frame before the first one. If there wasn't one,
             # one needs to be generated. This is the code that does it.
             # A generated frame will have no mode, no previous frame, and
-            # its current frame will be an PIL Image of mode RGB, color black.
+            # its current frame will be a PIL Image of mode RGB, color black.
+            # NOTE: Doing it this way allows one to generate a list of
+            # Cevideoframe objects without this placeholder frame occupying
+            # any position on that list, which is important if the contents of
+            # that list requires that its length is equal to the imported video.
+            # NOTE 2: That requirement slips in the end, but we account for a
+            # trailing frame at that point. So if you get confused if you read
+            # later in the file, that's why.
             frame_size_tuple = current_frame
             self.processed_frame = Image.new("RGB", frame_size_tuple, "black")
             self.current_frame = Image.new("RGB", frame_size_tuple, "black")
             self.previous_frame = None
             self.mode = None
             self.framedata = None
+            self.palette = None
+            self.output_palette = None
             return
         else:
             # Otherwise, try to initialize this object as a Cevideoframe object
@@ -226,86 +235,163 @@ class Cevideoframe:
             # requires a processed frame before running (due to mode not being allowed).
             self.current_frame = current_frame
             previous_frame = previous_frame if isinstance(previous_frame, Cevideoframe) else None
-            self.processed_frame = Cevideoframe.processframe(self.current_frame, mode, previous_frame)
-            if previous_frame is None:
-                previous_frame = Cevideoframe(None, self.processed_frame.size, None)
-            self.previous_frame = previous_frame
-            # We accept either Cevideomode objects, or (ratio, filter, dither)
             if isinstance(mode, Cevideomode):
                 self.mode = mode
             else:
                 self.mode = Cevideomode(*mode)
+            self.buffer_frame(previous_frame)
+            #self.processed_frame = Cevideoframe.processframe(self.current_frame, mode, previous_frame)
+            if previous_frame is None:
+                previous_frame = Cevideoframe(None, self.processed_frame.size, None)
+            self.previous_frame = previous_frame
+            # We accept either Cevideomode objects, or (ratio, filter, dither)
             self.framedata = bytearray()
         return
 
-    @staticmethod
-    def processframe(frameobj:Image.Image, mode: Cevideomode, previmg:Image.Image=None):
-        """ Note: previmg is same size as frameobj AFTER frameobj is processed
-            via scale. The previmg argument is intended to be used while
-            constructing an image array and if a previous image frame is needed
-            for purposes of improving possible adaptive frame accuracy.
-        """
+
+    def buffer_frame(self, prevframe:"Cevideoframe|None"):
+        ''' This is intended for color-accurate rendering for image array
+            buffering. For exports and adaptive color renders, this is what
+            you need to use.
+            NOTE: Sensible placeholders must be used in case prevframe is None.
+        '''
+        color_palette = Cevideoframe.select_palette(self, prevframe, self.mode)
+        self.palette = color_palette
+        
+        mode = self.mode
+        frameobj = self
+        frame = self.current_frame
         ratio = mode.scaleui
         filter = mode.filterui
         dither = mode.ditherui
-        frame = frameobj
 
         if ratio > 1:
             frame_width, frame_height = frame.size
             frame = frame.resize((frame_width // ratio, frame_height // ratio), Image.Resampling.LANCZOS)
 
         dither = Image.Dither.FLOYDSTEINBERG if dither else 0
-        if filter == 1:  # Black and white
-            color_palette = [
-                0, 0, 0,       # Black
-                255, 255, 255, # White
-            ]
-            palimg = Image.new("P", (16,16))
-            palimg.putpalette(color_palette*128)
-            frame = frame.quantize(palette=palimg, dither=dither)
-            #frame = frame.convert("RGB")
-        elif filter == 2:  # Black, white, light gray, and dark gray
-            color_palette = [
-                0, 0, 0,       # Black
-                64, 64, 64,    # Dark Gray
-                192, 192, 192, # Light Gray
-                255, 255, 255, # White
-            ]
-            palimg = Image.new("P", (16,16))
-            palimg.putpalette(color_palette*64)
-            frame = frame.quantize(palette=palimg, dither=dither)
-            #frame = frame.convert("RGB")
-        elif filter == 3:  # Black, white, and 14 equidistant shades of gray
-            color_palette = _flatten([[i+(i<<4)]*3 for i in range(16)] * 16)   #Too many grays
-            palimg = Image.new("P", (16,16))
+        color_palette = Cevideoframe.select_palette(frameobj, prevframe, mode)
+        broadcast_multiplier = int(256 / len(color_palette))
+        color_palette = _flatten(color_palette * broadcast_multiplier)
+
+        if filter >= 1:
+            palimg = Image.new("P", (16,16))    #Actual dimensions won't matter. Is a square in case we need to visually debug.
             palimg.putpalette(color_palette)
             frame = frame.quantize(palette=palimg, dither=dither)
             #frame = frame.convert("RGB")
-        elif filter == 4:  # Black, dark gray, light gray, white, red, lime, blue, yellow, magenta, cyan, maroon, green, dark blue, olive, purple, and teal
-            color_palette = [
-                0, 0, 0,       # Black
-                64, 64, 64,    # Dark Gray
-                192, 192, 192, # Light Gray
-                255, 255, 255, # White
-                255, 0, 0,     # Red
-                0, 255, 0,     # Lime
-                0, 0, 255,     # Blue
-                255, 255, 0,   # Yellow
-                255, 0, 255,   # Magenta
-                0, 255, 255,   # Cyan
-                128, 0, 0,     # Maroon
-                0, 128, 0,     # Green
-                0, 0, 128,     # Dark Blue
-                128, 128, 0,   # Olive
-                128, 0, 128,   # Purple
-                0, 128, 128    # Teal
-            ]
-            palimg = Image.new("P", (16,16))
-            palimg.putpalette(color_palette*16)
+
+        self.processed_frame = frame
+
+
+    @staticmethod
+    def select_palette(curframe:"Cevideoframe|Image.Image", prevframe:"Cevideoframe|Image.Image|None", mode:Cevideomode):
+        ''' This returns an array of 3-list entries corresponding to the
+            palette chosen by Cevideomode.
+            NOTE: To use with putpalette, you must broadcast this to a 256
+            entry list, then flatten the result.
+            NOTE: Further requirements must be met for adaptive palettes.
+            NOTE: THE ADAPTIVE IMPORT MUST BE PERFORMED HERE TO AVOID CIRCULAR
+                    IMPORTING ERRORS WHEN CEV_ADAPT TRIES TO IMPORT CEV_PROC
+        '''
+        from .cev_adapt import select_adaptive_palette, select_static_16
+
+        ratio = mode.scaleui
+        filter = mode.filterui
+        dither = mode.ditherui
+        if filter >= 1 and filter <= 4:
+            # If palette-agnostic filter is selected, then just output the
+            # palette, since it doesn't depend on any extended information.
+            # curframe and prevframe doesn't need to contain valid data for
+            # this to work.
+            if filter == 1:  # Black and white
+                color_palette = [(i,i,i) for i in [0, 255]]
+            elif filter == 2:
+                color_palette = [(i,i,i) for i in [0,64,192,255]]
+            elif filter == 3:
+                color_palette = [(i+(i<<4),)*3 for i in range(16)]
+            else:
+                color_palette = select_static_16()
+        else:
+            color_palette = None
+            if filter == 5:
+                color_palette = select_adaptive_palette(curframe, prevframe)
+
+        # If we're buffering Cevideoframes for a Cevideolist, we need to store
+        # the original selected palette separately from the color-adjusted
+        # palette so that adaptive frames doesn't cascade color-adjustments.
+        # Failing to do this would quickly wash out the frames.
+        if isinstance(curframe, Cevideoframe):
+            curframe.palette = color_palette
+
+        # Apply brightness adjustment
+        brightness_factor = Cevideomode.brightness()
+        adjusted_palette = []
+        for r, g, b in color_palette:
+            new_r = int(max(0, min(255, r * brightness_factor)))
+            new_g = int(max(0, min(255, g * brightness_factor)))
+            new_b = int(max(0, min(255, b * brightness_factor)))
+            adjusted_palette.append((new_r, new_g, new_b))
+        
+        # --- Gamma Correction Note ---
+        # This gamma correction uses the standard formula:
+        # output_color = 255 * (input_color / 255)^(1/gamma_value)
+        #
+        # Behavior with gamma values:
+        # - gamma = 1.0: No change to the color.
+        # - gamma < 1.0 (e.g., 0.5): Brightens the image.
+        # - gamma > 1.0 (e.g., 2.0): Darkens the image.
+        #
+        # This is the standard behavior for gamma correction. It is important to note
+        # that this is inverse to the current brightness implementation, where higher
+        # brightness values result in a brighter image.
+        # The input range for gamma is currently 0.0 to 2.0. Gamma values of 0.0
+        # will be clamped to a small positive value (e.g., 0.01) to avoid division by zero.
+        # -----------------------------
+        gamma_factors = Cevideomode.gamma()
+        final_palette = []
+        for r, g, b in adjusted_palette:
+            # Clamp gamma values to avoid division by zero or extreme results
+            gamma_r = max(0.01, gamma_factors[0])
+            gamma_g = max(0.01, gamma_factors[1])
+            gamma_b = max(0.01, gamma_factors[2])
+
+            new_r = int(max(0, min(255, 255 * ((r / 255.0) ** (1.0 / gamma_r)))))
+            new_g = int(max(0, min(255, 255 * ((g / 255.0) ** (1.0 / gamma_g)))))
+            new_b = int(max(0, min(255, 255 * ((b / 255.0) ** (1.0 / gamma_b)))))
+            final_palette.append((new_r, new_g, new_b))
+
+        # For output purposes, use this palette if buffering a Cevideolist.
+        if isinstance(curframe, Cevideoframe):
+            curframe.output_palette = final_palette
+        return final_palette
+
+
+    @staticmethod
+    def processframe(frameobj:"Image.Image", mode: Cevideomode, previmg:"Image.Image|None"=None):
+        """ NOTE: This is a display-only function intended for use in either a
+            bufferless renderer or as a placeholder image while buffering
+            is taking place.
+        """
+        ratio = mode.scaleui
+        filter = mode.filterui
+        dither = mode.ditherui
+        frame = frameobj if isinstance(frameobj, Image.Image) else frameobj.current_frame
+
+        if ratio > 1:
+            frame_width, frame_height = frame.size
+            frame = frame.resize((frame_width // ratio, frame_height // ratio), Image.Resampling.LANCZOS)
+
+        dither = Image.Dither.FLOYDSTEINBERG if dither else 0
+
+        if filter >= 1:
+            color_palette = Cevideoframe.select_palette(frameobj, previmg, mode)
+            broadcast_multiplier = int(256 / len(color_palette))
+            color_palette = _flatten(color_palette * broadcast_multiplier)
+            palimg = Image.new("P", (16,16))    #Actual dimensions won't matter. Is a square in case we need to visually debug.
+            palimg.putpalette(color_palette)
             frame = frame.quantize(palette=palimg, dither=dither)
             #frame = frame.convert("RGB")
-        elif filter == 5:  # Placeholder function
-            pass
+
         return frame
 
     @staticmethod
@@ -337,7 +423,10 @@ class Cevideoframe:
         if self.previous_frame.mode is None:
             self.framedata.append(Cevideoframe.RAW_VIDEO_DATA)
             self.framedata.extend(imgtopacked(self.processed_frame, self.mode))
-            self.framedata.extend(b'\x00\x00')  #adaptive format placeholder
+            palette_bitmap, color_data = self.encode_palette_delta()
+            self.framedata.extend(palette_bitmap)
+            self.framedata.extend(color_data)
+            print(f"Initial Palette frame data: {palette_bitmap.hex()} : {color_data.hex()}")
             return
 
         current_frame_array = np.array(self.processed_frame.getdata())
@@ -345,7 +434,9 @@ class Cevideoframe:
 
         if np.array_equal(current_frame_array, previous_frame_array):
             self.framedata.append(Cevideoframe.DUPLICATE_FRAME)
-            self.framedata.extend(b'\x00\x00')  #adaptive format placeholder
+            palette_bitmap, color_data = self.encode_palette_delta()
+            self.framedata.extend(palette_bitmap)
+            self.framedata.extend(color_data)
             return
 
         # Find the smallest possible box that contains all of the pixels that failed to match
@@ -367,7 +458,7 @@ class Cevideoframe:
 
             # Use imgtopacked() to format that data
             p1 = imgtopacked(cropped_frame, self.mode)
-            print(f"PARTFRAME (X,Y,W,H): ({min_x},{min_y},{max_x-min_x},{max_y-min_y}), framesize: {cropped_frame.size}:{len(p1)}, exp frame size: {((cropped_frame.size[0]*cropped_frame.size[1]) / alignment)}")
+            #print(f"PARTFRAME (X,Y,W,H): ({min_x},{min_y},{max_x-min_x},{max_y-min_y}), framesize: {cropped_frame.size}:{len(p1)}, exp frame size: {((cropped_frame.size[0]*cropped_frame.size[1]) / alignment)}")
             assert not cropped_frame.size[0] % alignment and not min_x % alignment 
             assert max_x-min_x and max_y-min_y
             assert len(p1) == ((cropped_frame.size[0]*cropped_frame.size[1]) / alignment)
@@ -449,7 +540,44 @@ class Cevideoframe:
             self.framedata.append(Cevideoframe.GRID_FRAME)
             self.framedata.extend(gridarraypack(p2b))
             self.framedata.extend(p2a)
-        self.framedata.extend(b'\x00\x00')  # adaptive format placeholder
+        palette_bitmap, color_data = self.encode_palette_delta()
+        self.framedata.extend(palette_bitmap)
+        self.framedata.extend(color_data)
+        print(f"Palette frame data: {palette_bitmap.hex()} : {color_data.hex()}")
+
+
+    def encode_palette_delta(self) -> tuple[bytes, bytearray]:
+        """
+        Compares the current frame's palette with the previous frame's palette
+        and generates a PALETTE_BITMAP and corresponding Color Data.
+
+        Returns:
+            A tuple containing:
+            - A 2-byte little-endian PALETTE_BITMAP.
+            - A bytearray of Color Data in RGB555 format.
+        """
+        current_palette = self.output_palette if self.output_palette is not None else []
+        previous_palette = self.previous_frame.output_palette if self.previous_frame and self.previous_frame.output_palette is not None else []
+
+        palette_bitmap = 0
+        color_data_bytes = bytearray()
+
+        for i in range(1, 16):  # Iterate through hardware palette entries 1 through 15
+            current_entry = current_palette[i] if i < len(current_palette) else None
+            previous_entry = previous_palette[i] if i < len(previous_palette) else None
+
+            if current_entry is not None and current_entry != previous_entry:
+                palette_bitmap |= (1 << (i - 1))  # Set the corresponding bit (0-14 for entries 1-15)
+
+                # Convert RGB to RGB555
+                r5 = current_entry[0] >> 3
+                g5 = current_entry[1] >> 3
+                b5 = current_entry[2] >> 3
+                rgb555 = (r5 << 10) | (g5 << 5) | b5
+
+                color_data_bytes.extend(rgb555.to_bytes(2, 'little'))
+
+        return palette_bitmap.to_bytes(2, 'little'), color_data_bytes
 
 
 class Cevideolist:
@@ -501,19 +629,101 @@ class Cevideolist:
         Reading about it made it seem like a total shitshow.
     '''
     def __init__(self, media_file: MediaFile, mode: Cevideomode):
+        self.thread = None
         self.media_file = media_file
         if not mode.frames_per_segment:
             raise ValueError(f"Invalid mode: {mode}. See documentation for valid modes.")
         self.mode = mode
-        self.frame_list:list["Cevideoframe"] = []
+        self._total_frames = len(self.media_file.frames) + 1 # +1 for END_OF_VIDEO frame
+        self.frame_list: list[Optional["Cevideoframe"]] = [None] * self._total_frames
         self.is_finished = False
         self.is_cancelled = False
+        self._progress = 0
+        self._lock = threading.Lock()
+        self._pause_event = threading.Event() # Added for pausing/resuming
+        self._pause_event.set() # Start in a running state
         self.thread = threading.Thread(target=self._build_frame_list)
-        self.thread.start()
         self.has_data_file_data_field_segments = False
         self.field_data:list[bytearray] = []
         self.is_compressed = False
         self.compressed_data = []
+        self._total_uncompressed_size = 0
+        self._total_compressed_size = 0
+
+    @classmethod
+    def from_frame_subset(cls, original_list: "Cevideolist", start: int, end: int) -> Optional["Cevideolist"]:
+        """
+        Alternate constructor to create a new Cevideolist from a subset of frames
+        of an already built Cevideolist.
+
+        Args:
+            original_list: The source Cevideolist object with its frame_list already built.
+            start: The starting index (inclusive) of the frame subset.
+            end: The ending index (inclusive) of the frame subset.
+
+        Returns:
+            A new Cevideolist object representing the subset, or None on failure.
+        """
+        if not isinstance(original_list, Cevideolist):
+            print("Error: original_list is not a Cevideolist instance.")
+            return None
+        if not original_list.is_finished:
+            print("Error: original_list frame_list is not yet built.")
+            return None
+
+        num_actual_frames = original_list._total_frames - 1 # Exclude the END_OF_VIDEO frame
+        if not (0 <= start <= end < num_actual_frames):
+            print(f"Error: Invalid start/end indices. start={start}, end={end}, actual_frames={num_actual_frames}")
+            return None
+
+        new_list = cls.__new__(cls)
+
+        # Manually set attributes
+        new_list.mode = original_list.mode
+        new_list.media_file = None # No direct MediaFile for a subset
+
+        # Slice the frame_list and add a new END_OF_VIDEO frame
+        new_list.frame_list = original_list.frame_list[start:end+1]
+
+        # Create a keyframe for the slice without damaging the original data structure.
+        if new_list.frame_list:
+            first_frame_of_slice = new_list.frame_list[0]
+            # Create a new Cevideoframe using data from the first item, but with an empty previous frame
+            keyframe = Cevideoframe(new_list.mode, first_frame_of_slice.current_frame, None)
+            keyframe.encodeframe() # Re-encode to ensure it's a RAW_VIDEO_DATA frame
+            new_list.frame_list[0] = keyframe # Copy this new frame into the first slot of the slice
+
+        # Add a new END_OF_VIDEO frame based on the last frame of the subset
+        last_frame_of_subset = new_list.frame_list[-1]
+        end_frame = Cevideoframe(new_list.mode, last_frame_of_subset.current_frame, last_frame_of_subset)
+        end_frame.framedata = bytearray([Cevideoframe.END_OF_VIDEO])
+        new_list.frame_list.append(end_frame)
+
+        new_list._total_frames = len(new_list.frame_list)
+        new_list.is_finished = True
+        new_list._progress = new_list._total_frames
+        new_list.is_cancelled = False
+        new_list._lock = threading.Lock()
+        new_list._pause_event = threading.Event()
+        new_list._pause_event.set()
+        new_list.thread = None # No thread needed as frames are already built
+        new_list.has_data_file_data_field_segments = False
+        new_list.field_data = []
+        new_list.is_compressed = False
+        new_list.compressed_data = []
+        new_list._total_uncompressed_size = 0 # Initialize for subset
+        new_list._total_compressed_size = 0 # Initialize for subset
+
+        # Calculate _total_uncompressed_size for the subset
+        for frame in new_list.frame_list:
+            if frame and frame.framedata:
+                new_list._total_uncompressed_size += len(frame.framedata)
+        
+        # Add the size of the END_OF_VIDEO frame that will be appended
+        # This is a fixed size (1 byte)
+        new_list._total_uncompressed_size += Cevideoframe.END_OF_VIDEO_FRAME_SIZE # Assuming END_OF_VIDEO_FRAME_SIZE is 1 byte
+
+        return new_list
 
     def _build_frame_list(self):
         try:
@@ -521,23 +731,37 @@ class Cevideolist:
             print(f"Length of pil_image_list: {len(pil_image_list)}")
             print(f"Processing image list...")
             prev_frame = None
-            for img in pil_image_list:
-                print(f"Type of img: {type(img)}, list length = {len(self.frame_list)} with cancel status: {self.is_cancelled}")
+            for i, img in enumerate(pil_image_list):
+                #print(f"Type of img: {type(img)}, list length = {len(self.frame_list)} with cancel status: {self.is_cancelled}")
+                self._pause_event.wait(0.1) # Wait if paused, with a timeout
                 if self.is_cancelled:
                     return
                 frame = Cevideoframe(self.mode, img, prev_frame)
                 frame.encodeframe()
-                self.frame_list.append(frame)
+                with self._lock:
+                    self.frame_list[i] = frame
+                    self._progress = i + 1
+                    self._total_uncompressed_size += len(frame.framedata)
                 prev_frame = frame
             self.is_finished = True
             print(f"Image list processed.")
 
             # Add end-of-video frame
             if not self.is_cancelled:
-                end_frame = Cevideoframe(self.mode, self.frame_list[-1].current_frame, self.frame_list[-1])
+                if pil_image_list: # Ensure there's at least one frame to base the end_frame on
+                    last_frame_obj = self.frame_list[len(pil_image_list) - 1]
+                    end_frame = Cevideoframe(self.mode, last_frame_obj.current_frame, last_frame_obj)
+                else:
+                    # Handle case where pil_image_list is empty (unlikely given current checks)
+                    raise ValueError("MediaFile frames list is empty, cannot create end-of-video frame.")
+
                 end_frame.encodeframe()
                 end_frame.framedata = bytearray([Cevideoframe.END_OF_VIDEO])
-                self.frame_list.append(end_frame)
+                
+                with self._lock:
+                    self.frame_list[len(pil_image_list)] = end_frame
+                    self._progress = self._total_frames # Mark all frames as processed
+                    self._total_uncompressed_size += len(end_frame.framedata) # Add size of END_OF_VIDEO frame
         except Exception as e:
             print(f"Error building frame list: {e}")
             self.is_cancelled = True
@@ -553,12 +777,66 @@ class Cevideolist:
     def is_complete(self):
         return self.is_finished
 
-    def collect_encoded_frames(self):
-        """Collects encoded frames into a list of sublists."""
+    def start_frame_build(self):
+        """
+        Starts the frame list building process in a separate thread.
+        This method should be called externally to control when the build begins.
+        """
+        if not self.thread.is_alive():
+            self.thread.start()
+        else:
+            print("Frame build thread is already running.")
+
+    def pause_frame_build(self):
+        """
+        Pauses the frame list building process.
+        """
+        self._pause_event.clear()
+
+    def resume_frame_build(self):
+        """
+        Resumes the frame list building process.
+        """
+        self._pause_event.set()
+
+    def is_build_thread_running(self) -> bool:
+        """
+        Checks if the frame build thread is currently alive.
+        """
+        return self.thread.is_alive()
+
+    def get_build_progress(self) -> tuple[int, int]:
+        """
+        Returns the current progress of the frame list build in a thread-safe manner.
+        Returns a tuple (frames_processed, total_frames_expected).
+        """
+        with self._lock:
+            return (self._progress, self._total_frames)
+
+    def __del__(self):
+        """
+        Ensures the background thread is properly terminated when the object is garbage collected.
+        """
+        if self.thread and self.thread.is_alive():
+            print("Cevideolist object being discarded, attempting to cancel and join thread.")
+            self.cancel()
+            self._pause_event.set() # Ensure the thread is not blocked on wait()
+            self.thread.join(timeout=5) # Wait up to 5 seconds for the thread to finish
+            if self.thread.is_alive():
+                print("Warning: Cevideolist thread did not terminate gracefully.")
+
+    def collect_encoded_frames(self, frames_to_process: Optional[list['Cevideoframe']] = None):
+        """
+        Collects encoded frames into a list of sublists (segments).
+        If frames_to_process is provided, it uses that list; otherwise, it uses self.frame_list.
+        """
+        if frames_to_process is None:
+            frames_to_process = self.frame_list
+
         segment_size = self.mode.frames_per_segment
         encoded_frames = []
         current_segment = []
-        for frame in self.frame_list:
+        for frame in frames_to_process:
             current_segment.append(frame)
             if len(current_segment) == segment_size:
                 encoded_frames.append(current_segment)
@@ -577,6 +855,8 @@ class Cevideolist:
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             def compress_segment(segment: list[Cevideoframe]):
                 nonlocal segments_compressed
+                input_filename = None
+                output_filename = None
                 try:
                     # Concatenate frame data into a single bytearray
                     segment_data = bytearray()
@@ -599,26 +879,18 @@ class Cevideolist:
                     with open(output_filename, "rb") as output_file:
                         compressed_segment_data = bytearray(output_file.read())
 
-                    # Clean up temporary files
-                    try:
-                        os.remove(input_filename)
-                    except FileNotFoundError:
-                        pass
-                    try:
-                        os.remove(output_filename)
-                    except FileNotFoundError:
-                        pass
-
                     segments_compressed += 1
                     callback(segments_compressed, total_segments)
+                    with self._lock: # Ensure thread-safe update
+                        self._total_compressed_size += len(compressed_segment_data)
                     return compressed_segment_data
                 except Exception as e:
                     print(f"Error compressing segment: {e}")
+                    # Attempt retry
                     try:
                         print("Retrying compression...")
                         # Run zx7.exe to compress the data
-                        zx7_path = "tools/zx7.exe"
-                        command = [zx7_path, input_filename, output_filename]
+                        # input_filename and output_filename should still be valid from the outer try
                         subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
                         # Read the compressed data from the output file
@@ -626,20 +898,24 @@ class Cevideolist:
                             compressed_segment_data = bytearray(output_file.read())
                         segments_compressed += 1
                         callback(segments_compressed, total_segments)
+                        with self._lock: # Ensure thread-safe update
+                            self._total_compressed_size += len(compressed_segment_data)
                         return compressed_segment_data
                     except Exception as e2:
                         print(f"Error compressing segment after retry: {e2}")
-                        raise
+                        raise # Re-raise the exception if retry also fails
                 finally:
                     # Clean up temporary files
-                    try:
-                        os.remove(input_filename)
-                    except FileNotFoundError:
-                        pass
-                    try:
-                        os.remove(output_filename)
-                    except FileNotFoundError:
-                        pass
+                    if input_filename and os.path.exists(input_filename):
+                        try:
+                            os.remove(input_filename)
+                        except FileNotFoundError:
+                            pass
+                    if output_filename and os.path.exists(output_filename):
+                        try:
+                            os.remove(output_filename)
+                        except FileNotFoundError:
+                            pass
 
             results = executor.map(compress_segment, encoded_segments)
 
@@ -649,6 +925,14 @@ class Cevideolist:
 
         self.is_compressed = True
         self.compressed_data = compressed_data
+
+        # Debug statement for compression ratio
+        if self._total_uncompressed_size > 0:
+            compression_ratio = (self._total_compressed_size / self._total_uncompressed_size) * 100
+            print(f"Compression Ratio: {compression_ratio:.2f}% (Compressed: {self._total_compressed_size} bytes, Uncompressed: {self._total_uncompressed_size} bytes)")
+        else:
+            print("Compression Ratio: N/A (Uncompressed size is 0 bytes)")
+
         return compressed_data
 
     def build_field_data(self, compressed_data: list[bytearray]) -> list[bytearray]:
@@ -703,3 +987,141 @@ class Cevideolist:
             entry_counts.append(current_entry_count)
 
         return concatenated_bytearrays, entry_counts
+
+    def find_end_frame_for_size(self, start_frame: int, size_kb: int) -> int:
+        """
+        Finds the maximum end frame index such that the exported data for the
+        subset (from start_frame to end_frame) approaches but does not exceed
+        the specified size_kb. This is done by performing actual compression
+        on segments to get an accurate size prediction.
+
+        Args:
+            start_frame: The starting index (inclusive) of the frame subset.
+            size_kb: The target size in kilobytes.
+
+        Returns:
+            An integer indicating the end frame number (inclusive) that fits
+            within the size_kb. Returns start_frame - 1 if no frames from
+            start_frame can fit, or -1 if the original list is not built or
+            inputs are invalid.
+        """
+        if not self.is_finished:
+            print("Error: Cevideolist frame_list is not yet built.")
+            return -1
+
+        num_actual_frames = self._total_frames - 1 # Exclude the END_OF_VIDEO frame
+        if not (0 <= start_frame < num_actual_frames):
+            print(f"Error: Invalid start_frame. start_frame={start_frame}, actual_frames={num_actual_frames}")
+            return -1
+        if size_kb <= 0:
+            print(f"Error: size_kb must be a positive integer. Got {size_kb}")
+            return -1
+
+        TARGET_BYTES = size_kb * 1024
+        SEGMENT_HEADER_SIZE = 4 # 2 bytes for field ID, 2 bytes for size
+        END_OF_VIDEO_FRAME_SIZE = 1 # 1 byte for END_OF_VIDEO marker
+
+        # Create a temporary Cevideolist for the subset from start_frame to the end
+        temp_full_list = Cevideolist.from_frame_subset(self, start_frame, num_actual_frames - 1)
+        if temp_full_list is None:
+            print("Error: Could not create temporary Cevideolist for size estimation.")
+            return -1 # Indicates a problem with subset creation
+
+        # Collect and compress all segments for this temporary full subset
+        encoded_segments = temp_full_list.collect_encoded_frames()
+        
+        def dummy_callback(current, total):
+            pass # No actual progress reporting needed for this internal calculation
+
+        # Perform actual compression on all segments of the temporary list
+        # This will populate temp_full_list._total_compressed_size
+        compressed_segments_data = temp_full_list.compress_encoded_segments(encoded_segments, dummy_callback)
+
+        # Check if even the first frame (first segment) exceeds the size limit
+        # This handles the case where start_frame itself is too large
+        if not compressed_segments_data: # No segments were compressed (e.g., empty range)
+            return start_frame - 1 # No frames fit
+
+        # Calculate size of the first segment + EOV frame
+        first_segment_size_with_header = len(compressed_segments_data[0]) + SEGMENT_HEADER_SIZE
+        if (first_segment_size_with_header + END_OF_VIDEO_FRAME_SIZE) > TARGET_BYTES:
+            return start_frame - 1 # Even the first frame is too large
+
+        current_total_size = 0
+        found_end_frame = start_frame - 1 # Default to no frames fitting
+
+        # Iterate through the actually compressed segments to find the end_frame
+        for seg_idx, compressed_segment in enumerate(compressed_segments_data):
+            segment_size_with_header = len(compressed_segment) + SEGMENT_HEADER_SIZE
+            
+            # Calculate potential total size if this segment is included
+            # The END_OF_VIDEO_FRAME_SIZE is added only once at the very end of the video data
+            potential_total_size_with_eov = current_total_size + segment_size_with_header + END_OF_VIDEO_FRAME_SIZE
+
+            if potential_total_size_with_eov <= TARGET_BYTES:
+                current_total_size += segment_size_with_header
+                
+                # Calculate the index of the last frame of the current segment within the original frame_list
+                # The frames in temp_full_list are relative to start_frame.
+                # (seg_idx + 1) * self.mode.frames_per_segment gives the count of frames up to the end of this segment
+                # within the temp_full_list's conceptual frame sequence.
+                # Subtract 1 for 0-indexing.
+                # Add start_frame to get the absolute index in the original list.
+                # Cap at num_actual_frames - 1 to ensure it doesn't go beyond the original video's last frame.
+                last_frame_in_segment_relative_to_temp_start = (seg_idx + 1) * self.mode.frames_per_segment - 1
+                current_segment_end_frame_original_index = start_frame + last_frame_in_segment_relative_to_temp_start
+                
+                found_end_frame = min(current_segment_end_frame_original_index, num_actual_frames - 1)
+            else:
+                # Adding this segment would exceed the size limit
+                break
+        
+        return found_end_frame
+
+    def estimate_size_for_range(self, start_frame: int, end_frame: int) -> int:
+        """
+        Estimates the compressed size in kilobytes for a subset of frames.
+
+        Args:
+            start_frame: The starting index (inclusive) of the frame subset.
+            end_frame: The ending index (inclusive) of the frame subset.
+
+        Returns:
+            The estimated size in kilobytes. Returns 0 if the original list is
+            not built or inputs are invalid.
+        """
+        if not self.is_finished:
+            print("Error: Cevideolist frame_list is not yet built.")
+            return 0
+
+        num_actual_frames = self._total_frames - 1 # Exclude the END_OF_VIDEO frame
+        if not (0 <= start_frame <= end_frame < num_actual_frames):
+            print(f"Error: Invalid start/end indices. start={start_frame}, end={end_frame}, actual_frames={num_actual_frames}")
+            return 0
+
+        # Create a temporary Cevideolist for the subset
+        temp_list = Cevideolist.from_frame_subset(self, start_frame, end_frame)
+        if temp_list is None:
+            print("Error: Could not create temporary Cevideolist for size estimation.")
+            return 0
+
+        # Collect and compress all segments for this temporary subset
+        encoded_segments = temp_list.collect_encoded_frames()
+        
+        def dummy_callback(current, total):
+            pass # No actual progress reporting needed for this internal calculation
+
+        # Perform actual compression on all segments of the temporary list
+        compressed_segments_data = temp_list.compress_encoded_segments(encoded_segments, dummy_callback)
+
+        # Calculate total size including segment headers and the END_OF_VIDEO frame
+        total_size_bytes = 0
+        SEGMENT_HEADER_SIZE = 4 # 2 bytes for field ID, 2 bytes for size
+        END_OF_VIDEO_FRAME_SIZE = 1 # 1 byte for END_OF_VIDEO marker
+
+        for _ in compressed_segments_data:
+            total_size_bytes += len(_) + SEGMENT_HEADER_SIZE
+        
+        total_size_bytes += END_OF_VIDEO_FRAME_SIZE # Add size for the final END_OF_VIDEO marker
+
+        return ceil(total_size_bytes / 1024) # Return size in KB
