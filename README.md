@@ -35,7 +35,7 @@ package installation.*
   * pillow
   * ffmpeg
   * numpy
-  * tktooltip
+  * tkinter-tooltip
   * tkinterdnd2
   * scikit-learn
   * scikit-image
