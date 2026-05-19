@@ -1,12 +1,14 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, Toplevel, Label, Tk
 from tkinter.ttk import Progressbar
+import tktooltip
 from tktooltip import ToolTip
 from PIL import Image, ImageTk
 from tkinterdnd2 import TkinterDnD, DND_FILES
 import traceback
 from itertools import chain
 import os
+import sys
 import threading
 import queue
 import ast
@@ -35,6 +37,15 @@ class CevencoderUI:
         self.active_cevideolist: cev_proc.Cevideolist = None
         self.status_update_job = None
         self.sync_gamma_var = tk.BooleanVar(value=True)
+        self.last_export_diagnostics = None
+        self.video_name_entry = None
+        self.export_button = None
+        self.export_reason_label = None
+        self.status_bar = None
+        self.toolbar_toggle_button = None
+        self.ratio_var = None
+        self.filter_var = None
+        self.adaptive_restriction_var = None
 
         # Row layout constants
         VIDEOFRAME_ROW = 1
@@ -216,19 +227,32 @@ class CevencoderUI:
         self.video_author_entry.pack(side='left')
 
         # Export Video Button
-        self.export_button = tk.Button(self.video_info_frame, text="Export Video", command=lambda: self.export_video(
+        self.export_controls_frame = tk.Frame(self.video_info_frame)
+        self.export_controls_frame.pack(side='right', padx=10)
+        self.export_button = tk.Button(self.export_controls_frame, text="Export Video", command=lambda: self.export_video(
             self.video_name_entry.get(),
             self.video_title_entry.get(),
             self.video_author_entry.get()
         ), state=tk.DISABLED)
-        self.export_button.pack(side='right', padx=10)
+        self.export_button.pack(anchor='e')
+        self.export_reason_label = tk.Label(
+            self.export_controls_frame,
+            text="",
+            fg="dim gray",
+            justify=tk.RIGHT,
+            anchor="e",
+            wraplength=320,
+        )
+        self.export_reason_label.pack(anchor='e')
         ToolTip(self.export_button, msg=self._get_export_tooltip_message)
+        ToolTip(self.export_reason_label, msg=self._get_export_tooltip_message)
         self.video_name_entry.bind("<KeyRelease>", lambda event: self.update_export_button_state())
         self.toolbar_toggle_button_tooltip = ToolTip(self.toolbar_toggle_button, msg=self._get_toolbar_toggle_tooltip_message)
 
         # Status Bar
         self.status_bar = tk.Label(master, text="Ready", bd=1, relief=tk.SUNKEN, anchor=tk.W)
         self.status_bar.grid(row=STATUS_BAR_ROW, column=0, columnspan=5, sticky="ew")
+        self._log_environment_diagnostics()
 
         # Debugging init
         if DEBUG_FILE_INIT and os.path.exists(DEBUG_FILE_INIT):
@@ -241,37 +265,117 @@ class CevencoderUI:
             self.toolbar_frame.grid_remove()
             self.trim_toolbar_frame.grid()
 
-    def _get_export_tooltip_message(self):
+    def _log_environment_diagnostics(self):
+        print(
+            "[CEVidium UI] Python={} Tk={} Tcl={} tktooltip={}".format(
+                sys.version.split()[0],
+                tk.TkVersion,
+                tk.TclVersion,
+                getattr(tktooltip, "__version__", "unknown"),
+            )
+        )
+
+    def _get_export_blockers(self):
         messages = []
+        video_name = self._get_current_video_name()
+        filter_value = self._get_current_filter_value()
+        ratio_value = self._get_current_ratio_value()
+        adaptive_restriction_enabled = self._get_adaptive_restriction_enabled()
         if self.media_file is None:
             messages.append("Import a media file.")
-        if not self.validate_video_name(self.video_name_entry.get()):
+        if not self.validate_video_name(video_name):
             messages.append("Video name must be 1-8 uppercase alphanumeric characters, first character not a digit.")
-        if self.filter_var.get() == 0:
+        if filter_value == 0:
             messages.append("Select a filter (N/A is not allowed for export).")
-        if self.ratio_var.get() == 1:
+        if ratio_value == 1:
             messages.append("Cannot export with /1 ratio selected.")
-        if self.filter_var.get() == 5 and self.adaptive_restriction_var.get(): # 5 is the index for "Adaptive"
+        if filter_value == 5 and adaptive_restriction_enabled:
             messages.append("Cannot export with 'Adaptive' filter selected (restriction enabled).")
+        return messages
 
+    def _get_toolbar_toggle_blockers(self):
+        messages = []
+        video_name = self._get_current_video_name()
+        filter_value = self._get_current_filter_value()
+        ratio_value = self._get_current_ratio_value()
+        adaptive_restriction_enabled = self._get_adaptive_restriction_enabled()
+        if self.media_file is None:
+            messages.append("Import a media file.")
+        if not self.validate_video_name(video_name):
+            messages.append("Video name must be 1-8 uppercase alphanumeric characters, first character not a digit.")
+        if filter_value == 0:
+            messages.append("Select a filter (N/A is not allowed for export).")
+        if ratio_value == 1:
+            messages.append("Cannot use trim toolbar with /1 ratio selected.")
+        if filter_value == 5 and adaptive_restriction_enabled:
+            messages.append("Cannot use trim toolbar with 'Adaptive' filter selected (restriction enabled).")
+        return messages
+
+    def _get_current_video_name(self):
+        return self.video_name_entry.get() if self.video_name_entry else ""
+
+    def _get_current_ratio_value(self):
+        return self.ratio_var.get() if self.ratio_var else 1
+
+    def _get_current_filter_value(self):
+        return self.filter_var.get() if self.filter_var else 0
+
+    def _get_adaptive_restriction_enabled(self):
+        return self.adaptive_restriction_var.get() if self.adaptive_restriction_var else False
+
+    def _update_export_reason_label(self, messages):
+        if not self.export_reason_label:
+            return
+        if messages:
+            self.export_reason_label.config(
+                text="Export unavailable: " + " ".join(messages),
+                fg="firebrick",
+            )
+        else:
+            self.export_reason_label.config(
+                text="Export available.",
+                fg="dark green",
+            )
+
+    def _log_export_state_snapshot(self, can_export, messages):
+        video_name = self._get_current_video_name()
+        filter_value = self._get_current_filter_value()
+        ratio_value = self._get_current_ratio_value()
+        adaptive_restriction_enabled = self._get_adaptive_restriction_enabled()
+        snapshot = (
+            can_export,
+            tuple(messages),
+            self.media_file is not None,
+            video_name,
+            filter_value,
+            ratio_value,
+            adaptive_restriction_enabled,
+        )
+        if snapshot == self.last_export_diagnostics:
+            return
+
+        self.last_export_diagnostics = snapshot
+        print(
+            "[CEVidium UI] Export state={} media_loaded={} name={!r} filter={} ratio={} adaptive_restriction={} blockers={}".format(
+                "enabled" if can_export else "disabled",
+                self.media_file is not None,
+                video_name,
+                filter_value,
+                ratio_value,
+                adaptive_restriction_enabled,
+                messages if messages else ["<none>"],
+            )
+        )
+
+    def _get_export_tooltip_message(self):
+        messages = self._get_export_blockers()
         if not messages:
             return "Export video to a .8xv file."
         else:
             return "Export button disabled:\n" + "\n".join(messages)
 
     def _get_toolbar_toggle_tooltip_message(self):
-        messages = []
-        if self.media_file is None:
-            messages.append("Import a media file.")
-        if not self.validate_video_name(self.video_name_entry.get()):
-            messages.append("Video name must be 1-8 uppercase alphanumeric characters, first character not a digit.")
-        if self.filter_var.get() == 0:
-            messages.append("Select a filter (N/A is not allowed for export).")
-        if self.ratio_var.get() == 1:
-            messages.append("Cannot use trim toolbar with /1 ratio selected.")
-        if self.filter_var.get() == 5 and self.adaptive_restriction_var.get(): # 5 is the index for "Adaptive"
-            messages.append("Cannot use trim toolbar with 'Adaptive' filter selected (restriction enabled).")
-
+        messages = self._get_toolbar_toggle_blockers()
         if not messages:
             return "Switch to trim toolbar."
         else:
@@ -327,26 +431,28 @@ class CevencoderUI:
     def update_export_button_state(self):
         # Update export button state based on video name validity, filter selection, media file load status, ratio, and adaptive restriction.
         try:
-            is_valid_name = self.validate_video_name(self.video_name_entry.get())
-            is_filter_selected = self.filter_var.get() != 0
-            is_media_file_loaded = self.media_file is not None
-            is_ratio_one = self.ratio_var.get() == 1
-            is_adaptive_filter_selected = self.filter_var.get() == 5 # 5 is the index for "Adaptive"
-            is_adaptive_restriction_enabled = self.adaptive_restriction_var.get()
+            messages = self._get_export_blockers()
+            can_export = not messages
 
-            can_export = is_valid_name and is_filter_selected and is_media_file_loaded and not is_ratio_one
-            if is_adaptive_filter_selected and is_adaptive_restriction_enabled:
-                can_export = False
-
-            self.export_button.config(state=tk.NORMAL if can_export else tk.DISABLED)
-            self.toolbar_toggle_button.config(state=tk.NORMAL if can_export else tk.DISABLED)
+            if self.export_button:
+                self.export_button.config(state=tk.NORMAL if can_export else tk.DISABLED)
+            if self.toolbar_toggle_button:
+                self.toolbar_toggle_button.config(state=tk.NORMAL if can_export else tk.DISABLED)
+            self._update_export_reason_label(messages)
+            self._log_export_state_snapshot(can_export, messages)
 
             # If the toolbar toggle button becomes disabled and the trim toolbar is active, switch back to main.
             # This logic should be skipped if DEBUG_INSPECT_TRIM_TOOLBAR is True
             if not DEBUG_INSPECT_TRIM_TOOLBAR and not can_export and self.trim_toolbar_frame.winfo_ismapped():
                 self.toggle_toolbars()
-        except:
-            pass
+        except Exception as e:
+            error_message = f"Error updating export state: {e}"
+            if self.export_reason_label:
+                self.export_reason_label.config(text=error_message, fg="firebrick")
+            if self.status_bar:
+                self.status_bar.config(text=error_message)
+            print(error_message)
+            traceback.print_exc()
 
     # Validation function for video name
     @staticmethod
