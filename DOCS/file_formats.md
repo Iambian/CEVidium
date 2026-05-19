@@ -89,8 +89,9 @@ This section describes the frame data format for the M1X3-ZX7 decoder.
 
 *   Immediately following all frame data (if the video palette is adaptive) is a delta palette update. This update consists of a `PALETTE_BITMAP` and, optionally, corresponding color data.
 
-    *   **`PALETTE_BITMAP`**: A 16-bit bitfield (2 bytes) that specifies which of the 16 hardware palette entries (fields 0-15) are being updated.
-        *   Each '1' bit in the bitmap indicates that the corresponding hardware palette entry will be updated. Bit 0 (LSB) maps to hardware palette field 0, and bit 15 (MSB) maps to hardware palette field 15.
+    *   **`PALETTE_BITMAP`**: A 16-bit bitfield (2 bytes) that specifies which of the 16 hardware palette entries are being updated.
+        *   The hardware palette is 16 entries wide, but entry 0 is reserved for the color black and cannot be changed. There are 15 changeable entries (1-15).
+        *   Each '1' bit in the bitmap indicates that the corresponding hardware palette entry will be updated. Bit 0 (LSB) maps to hardware palette entry 1, and bit 14 maps to hardware palette entry 15. Bit 15 (MSB) of the bitmap is unused.
         *   The `PALETTE_BITMAP` is read from LSB to MSB.
         *   If the frame is not adaptive, or if the frame `TYPE` does not carry frame data (e.g., `End of Video`), the `PALETTE_BITMAP` will be `0x0000`, and no color information will follow.
         *   Note: `PALETTE_BITMAP` is expected even after `Duplicate Frame` (TYPE 0x03) frames.
@@ -105,10 +106,10 @@ This section describes the frame data format for the M1X3-ZX7 decoder.
     ; Example palette entry, TASM-style assembly.
 
     #define RGB555(r,g,b) (0<<15 + R<<10 + G<<5 + B<<0)
-    .dw %0100000000001001       ; PALETTE_BITMAP, field mapping to 0, 3, and 14
+    .dw %0100000000001001       ; PALETTE_BITMAP, field mapping to 1, 4, and 15
     .dw RGB555(255,0,0)         ; Assign red to palette field 0.
-    .dw RGB555(0,255,0)         ; Assign green to palette field 3.
-    .dw RGB555(0,0,255)         ; Assign blue to palette field 14.
+    .dw RGB555(0,255,0)         ; Assign green to palette field 4.
+    .dw RGB555(0,0,255)         ; Assign blue to palette field 15.
 
 ## Additional Notes That Needed To Be Rediscovered About This Format
 
@@ -119,3 +120,4 @@ This section describes the frame data format for the M1X3-ZX7 decoder.
 *   The `PALETTE_BITMAP` is expected even after duplicate frames. This would theoretically allow animations to be carried solely in palette updates, as old palettized animations from ancient GIFs and games sometimes did, but none of our encoders are smart enough to actually detect this sort of thing. I think. 
 *   From reading the decoder, the only frame type that doesn't expect a `PALETTE_BITMAP` would be the `End of Video` frame type. The code involved in handling EoV/EoF involves a stack unwinding that bypasses palette placement and skips straight to cleanup code.
 *   `ACTIVE_BITFIELD` May not be larger than 256 bits (32 bytes). This can't be done with a M1X3-ZX7 decodeable stream (since you'd run into height problems first), but can be accomplished with a stream decodeable by M1X2-ZX7. In fact, M1X2-ZX7 had to be kludged to accept a bitfield equal to the stated maximum size. Anything larger, however, and the stream will be treated as though its size had its uppermost bits chopped off. (size % 32 bytes)
+*   **`PALETTE_BITMAP` Mapping:** While the hardware palette is 16 entries wide, entry 0 is reserved for the color black. There are 15 changeable entries, such that bit 0 of the bitmap corresponds to entry 1, and bit 14 corresponds to entry 15. The 15th bit of the bitmap is unused.
