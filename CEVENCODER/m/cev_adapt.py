@@ -5,10 +5,6 @@
 from .cev_proc import Cevideoframe, Cevideomode
 from PIL import Image
 
-import numpy as np
-from sklearn.cluster import KMeans
-from skimage.color import rgb2lab, lab2rgb
-
 def to_3_list(a:list|bytes|bytearray):
     return [[a[i+0], a[i+1], a[i+2]] for i in range(0, len(a), 3)]
 
@@ -68,7 +64,6 @@ def select_dynamic_15(curframe:Cevideoframe, prevframe:Cevideoframe):
     qimg = img.quantize(colors=15)
     color_palette = [[0,0,0]] + to_3_list(qimg.getpalette())
     return color_palette
-
 
 
 
